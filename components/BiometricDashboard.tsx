@@ -1,7 +1,7 @@
 // components/BiometricDashboard.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 interface TestResult {
@@ -20,6 +20,16 @@ interface VerificationResult {
   timestamp: string;
 }
 
+interface SensorReadings {
+  accelX: number;
+  accelY: number;
+  accelZ: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  touchCount: number;
+}
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -29,6 +39,21 @@ export default function BiometricDashboard() {
   const [isRunning, setIsRunning] = useState(false);
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [sensorReadings, setSensorReadings] = useState<SensorReadings>({
+    accelX: 0,
+    accelY: 0,
+    accelZ: 0,
+    rotX: 0,
+    rotY: 0,
+    rotZ: 0,
+    touchCount: 0
+  });
+  const [isCapturingSensors, setIsCapturingSensors] = useState(false);
+  const accelDataRef = useRef<number[]>([]);
+  const touchEventsRef = useRef<Array<{ pressure: number; velocity: number }>>([]);
+  const lastTouchRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
 
   const testDescriptions: Record<string, string> = {
     gait_analysis: 'Walking pattern via accelerometer',
@@ -37,7 +62,145 @@ export default function BiometricDashboard() {
     behavioral_pattern: 'App usage sequences'
   };
 
+  // Detect if mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      const ua = navigator.userAgent;
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+      setIsMobile(isMobileDevice);
+    };
+
+    checkMobile();
+  }, []);
+
+  // Request sensor permissions and start listening
+  const handleRequestPermissions = async () => {
+    try {
+      setError(null);
+
+      // Request DeviceMotion permission (iOS 13+)
+      if (typeof DeviceMotionEvent !== 'undefined') {
+        if ((DeviceMotionEvent as any).requestPermission) {
+          const permissionMotion = await (DeviceMotionEvent as any).requestPermission();
+          if (permissionMotion !== 'granted') {
+            setError('Motion sensor permission denied');
+            return;
+          }
+        }
+
+        // Start listening to device motion
+        window.addEventListener('devicemotion', handleDeviceMotion);
+      }
+
+      // Request DeviceOrientation permission (iOS 13+)
+      if (typeof DeviceOrientationEvent !== 'undefined') {
+        if ((DeviceOrientationEvent as any).requestPermission) {
+          const permissionOrientation = await (DeviceOrientationEvent as any).requestPermission();
+          if (permissionOrientation !== 'granted') {
+            setError('Orientation sensor permission denied');
+            return;
+          }
+        }
+
+        // Start listening to device orientation
+        window.addEventListener('deviceorientation', handleDeviceOrientation);
+      }
+
+      // Listen to touch events
+      window.addEventListener('touchstart', handleTouchStart);
+      window.addEventListener('touchmove', handleTouchMove);
+
+      setPermissionsGranted(true);
+      setIsCapturingSensors(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request permissions');
+    }
+  };
+
+  const handleDeviceMotion = (event: DeviceMotionEvent) => {
+    const accel = event.accelerationIncludingGravity;
+    if (accel) {
+      setSensorReadings(prev => ({
+        ...prev,
+        accelX: Math.round(accel.x || 0),
+        accelY: Math.round(accel.y || 0),
+        accelZ: Math.round(accel.z || 0)
+      }));
+
+      // Store accelerometer data for later use
+      if (isCapturingSensors) {
+        accelDataRef.current.push(accel.x || 0, accel.y || 0, accel.z || 0);
+      }
+    }
+  };
+
+  const handleDeviceOrientation = (event: DeviceOrientationEvent) => {
+    setSensorReadings(prev => ({
+      ...prev,
+      rotX: Math.round(event.beta || 0),
+      rotY: Math.round(event.gamma || 0),
+      rotZ: Math.round(event.alpha || 0)
+    }));
+  };
+
+  const handleTouchStart = (e: TouchEvent) => {
+    const touch = e.touches[0];
+    lastTouchRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now()
+    };
+  };
+
+  const handleTouchMove = (e: TouchEvent) => {
+    if (!isCapturingSensors) return;
+
+    const touch = e.touches[0];
+    const now = Date.now();
+    const deltaX = touch.clientX - lastTouchRef.current.x;
+    const deltaY = touch.clientY - lastTouchRef.current.y;
+    const deltaTime = now - lastTouchRef.current.time;
+
+    // Calculate velocity and pressure
+    const velocity = deltaTime > 0 ? Math.sqrt(deltaX * deltaX + deltaY * deltaY) / deltaTime * 1000 : 0;
+    const pressure = (touch as any).force || Math.random() * 100; // iOS only has real force
+
+    touchEventsRef.current.push({
+      pressure,
+      velocity
+    });
+
+    setSensorReadings(prev => ({
+      ...prev,
+      touchCount: touchEventsRef.current.length
+    }));
+
+    lastTouchRef.current = { x: touch.clientX, y: touch.clientY, time: now };
+  };
+
+  const stopCapturingSensors = () => {
+    setIsCapturingSensors(false);
+    window.removeEventListener('devicemotion', handleDeviceMotion);
+    window.removeEventListener('deviceorientation', handleDeviceOrientation);
+    window.removeEventListener('touchstart', handleTouchStart);
+    window.removeEventListener('touchmove', handleTouchMove);
+  };
+
   const generateBiometricData = () => {
+    // Use real sensor data if available and capturing, otherwise use simulated
+    if (permissionsGranted && accelDataRef.current.length > 0) {
+      return {
+        accelerometerData: accelDataRef.current,
+        touchEvents: touchEventsRef.current,
+        deviceMotion: {
+          roll: sensorReadings.rotX,
+          pitch: sensorReadings.rotY,
+          yaw: sensorReadings.rotZ
+        }
+      };
+    }
+
+    // Fallback to simulated data
     const accelData = Array(50).fill(0).map(() => Math.random() * 100);
     const touchEvents = Array(10).fill(0).map(() => ({
       pressure: Math.random() * 100,
@@ -81,6 +244,10 @@ export default function BiometricDashboard() {
 
       const result: VerificationResult = await response.json();
       setVerificationResult(result);
+
+      // Reset sensor data for next reading
+      accelDataRef.current = [];
+      touchEventsRef.current = [];
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -135,10 +302,83 @@ export default function BiometricDashboard() {
           <p style={{ margin: 0, opacity: 0.9 }}>
             Real-time security test verification prototype
           </p>
+          {isMobile && permissionsGranted && (
+            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.8, fontSize: '0.9rem' }}>
+              ✅ Mobile sensors active
+            </p>
+          )}
         </div>
 
         {/* Content */}
         <div style={{ padding: '2rem' }}>
+          {/* Mobile Detection Banner */}
+          {!permissionsGranted && isMobile && (
+            <div style={{
+              padding: '1rem',
+              background: '#dbeafe',
+              border: '1px solid #93c5fd',
+              borderRadius: '6px',
+              color: '#1e40af',
+              marginBottom: '2rem'
+            }}>
+              <strong>📱 Mobile Device Detected!</strong>
+              <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.95rem' }}>
+                Click "Enable Sensors" to use real biometric data from your phone's accelerometer, gyroscope, and touch sensors.
+              </p>
+            </div>
+          )}
+
+          {isMobile && !permissionsGranted && (
+            <button
+              onClick={handleRequestPermissions}
+              style={{
+                width: '100%',
+                padding: '1rem',
+                background: '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 600,
+                fontSize: '1rem',
+                cursor: 'pointer',
+                marginBottom: '2rem'
+              }}
+            >
+              📡 Enable Sensors
+            </button>
+          )}
+
+          {/* Sensor Readings Display (Mobile Only) */}
+          {permissionsGranted && isCapturingSensors && (
+            <div style={{
+              padding: '1rem',
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '6px',
+              marginBottom: '2rem'
+            }}>
+              <h3 style={{ margin: '0 0 1rem 0', color: '#166534', fontSize: '1rem' }}>
+                📊 Live Sensor Readings
+              </h3>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '0.5rem',
+                fontSize: '0.85rem',
+                color: '#166534'
+              }}>
+                <div><strong>Accel X:</strong> {sensorReadings.accelX.toFixed(1)} m/s²</div>
+                <div><strong>Accel Y:</strong> {sensorReadings.accelY.toFixed(1)} m/s²</div>
+                <div><strong>Accel Z:</strong> {sensorReadings.accelZ.toFixed(1)} m/s²</div>
+                <div><strong>Rot X:</strong> {sensorReadings.rotX.toFixed(1)}°</div>
+                <div><strong>Rot Y:</strong> {sensorReadings.rotY.toFixed(1)}°</div>
+                <div><strong>Rot Z:</strong> {sensorReadings.rotZ.toFixed(1)}°</div>
+                <div><strong>Touch Events:</strong> {sensorReadings.touchCount}</div>
+                <div><strong>Status:</strong> Capturing...</div>
+              </div>
+            </div>
+          )}
+
           {/* User ID Section */}
           <div style={{ marginBottom: '2rem' }}>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
@@ -175,6 +415,24 @@ export default function BiometricDashboard() {
                 {isRunning ? 'Running Tests...' : 'Run Verification'}
               </button>
             </div>
+            {permissionsGranted && isCapturingSensors && (
+              <button
+                onClick={stopCapturingSensors}
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.5rem 1rem',
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                Stop Sensor Capture
+              </button>
+            )}
           </div>
 
           {/* Error Display */}
@@ -291,7 +549,6 @@ export default function BiometricDashboard() {
                         alignItems: 'center',
                         gap: '1rem'
                       }}>
-                        {/* Status Badge */}
                         <div style={{
                           padding: '0.25rem 0.75rem',
                           background: '#dbeafe',
@@ -305,7 +562,6 @@ export default function BiometricDashboard() {
                           {test.running ? '▶ Running' : '✓ Idle'}
                         </div>
 
-                        {/* Confidence Score with Mini Bar */}
                         <div style={{
                           textAlign: 'right',
                           minWidth: '120px'
@@ -352,6 +608,7 @@ export default function BiometricDashboard() {
               }}>
                 <div><strong>Session ID:</strong> {verificationResult.sessionId}</div>
                 <div><strong>User ID:</strong> {verificationResult.userId}</div>
+                <div><strong>Data Type:</strong> {permissionsGranted ? '📱 Real Sensors' : '🔄 Simulated'}</div>
                 <div><strong>Timestamp:</strong> {new Date(verificationResult.timestamp).toLocaleString()}</div>
               </div>
             </div>
@@ -369,7 +626,9 @@ export default function BiometricDashboard() {
                 Click "Run Verification" to test the biometric authentication system
               </p>
               <p style={{ fontSize: '0.9rem', opacity: 0.7 }}>
-                Results will show confidence scores from multiple security tests
+                {isMobile && !permissionsGranted 
+                  ? 'Enable sensors first to use real biometric data from your phone'
+                  : 'Results will show confidence scores from multiple security tests'}
               </p>
             </div>
           )}
