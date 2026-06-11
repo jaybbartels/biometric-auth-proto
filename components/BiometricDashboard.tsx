@@ -207,17 +207,12 @@ export default function BiometricDashboard() {
                     <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>
                       Overall Confidence Score
                     </h2>
-                    <span style={getDecisionStyle(verificationResult.decision)}>
+		    <span>
                       <span style={{
                         display: 'inline-block',
                         padding: '0.5rem 1rem',
                         background: getDecisionStyle(verificationResult.decision).bg,
                         color: getDecisionStyle(verificationResult.decision).text,
-                        borderRadius: '6px',
-                        fontWeight: 600,
-                        fontSize: '0.9rem'
-                      }}>
-                        {getDecisionStyle(verificationResult.decision).label}
                       </span>
                     </span>
                   </div>
