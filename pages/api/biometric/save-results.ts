@@ -14,11 +14,7 @@ export default async function handler(
   }
 
   try {
-    const { userId, organizationId, configurationId, overallConfidence, decision, testResults } = req.body;
-
-    console.log('=== SAVE RESULTS ===');
-    console.log('userId:', userId);
-    console.log('organizationId:', organizationId);
+    const { userId, organizationId, configurationId, overallConfidence, decision, testResults, deviceInfo } = req.body;
 
     if (!userId || !organizationId || !configurationId) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -37,9 +33,8 @@ export default async function handler(
     }
 
     const actualUserId = userData.id;
-    console.log('actualUserId:', actualUserId);
 
-    // Insert into authentication_events (for admin dashboard)
+    // Insert into authentication_events with full device info
     const { error: eventError } = await supabase
       .from('authentication_events')
       .insert({
@@ -49,14 +44,25 @@ export default async function handler(
         overall_confidence: overallConfidence,
         decision: decision,
         test_results: { tests: testResults },
-        device_info: { userAgent: req.headers['user-agent'] },
-        ip_address: req.headers['x-forwarded-for'] || 'unknown'
+        device_info: {
+          deviceType: deviceInfo?.deviceType || 'Unknown',
+          browser: deviceInfo?.browser || 'Unknown',
+          osVersion: deviceInfo?.osVersion || 'Unknown',
+          latitude: deviceInfo?.latitude,
+          longitude: deviceInfo?.longitude,
+          accuracy: deviceInfo?.accuracy,
+          userAgent: req.headers['user-agent']
+        },
+        ip_address: req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown'
       });
 
-    console.log('Event insert:', eventError);
+    if (eventError) {
+      console.error('Event insert error:', eventError);
+      return res.status(400).json({ error: eventError.message });
+    }
 
     // Upsert to trust_scores
-    const { error: trustError } = await supabase
+    await supabase
       .from('trust_scores')
       .upsert({
         user_id: actualUserId,
@@ -68,8 +74,6 @@ export default async function handler(
       }, {
         onConflict: 'user_id,organization_id,configuration_id'
       });
-
-    console.log('Trust score upsert:', trustError);
 
     return res.status(200).json({ success: true, message: 'Results saved to database' });
   } catch (error) {

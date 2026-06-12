@@ -177,7 +177,10 @@ export default function AdminDashboard() {
           <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🔐 Admin Dashboard</h1>
           <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Organization: {organizationName}</p>
         </div>
-        <button onClick={handleLogout} style={{ padding: '0.75rem 1.5rem', background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid white', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Logout</button>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button onClick={() => window.location.href = '/admin/raw-data'} style={{ padding: '0.75rem 1.5rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>📊 Raw Data</button>
+          <button onClick={handleLogout} style={{ padding: '0.75rem 1.5rem', background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid white', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Logout</button>
+        </div>
       </div>
 
       <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
