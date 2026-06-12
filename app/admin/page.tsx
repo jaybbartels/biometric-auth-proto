@@ -9,9 +9,13 @@ interface User {
 interface Configuration {
   id: string;
   name: string;
+  description?: string;
   allow_threshold: number;
   challenge_threshold: number;
   location_data?: any;
+  allow_redirect_url?: string;
+  challenge_redirect_url?: string;
+  deny_redirect_url?: string;
 }
 
 interface ConfidenceScore {
@@ -39,8 +43,12 @@ export default function AdminDashboard() {
   const [showConfigForm, setShowConfigForm] = useState(false);
   const [newConfig, setNewConfig] = useState({
     name: '',
+    description: '',
     allow_threshold: 80,
     challenge_threshold: 70,
+    allow_redirect_url: '',
+    challenge_redirect_url: '',
+    deny_redirect_url: '',
     enableLocation: false,
     location_latitude: 37.7749,
     location_longitude: -122.4194,
@@ -133,10 +141,13 @@ export default function AdminDashboard() {
       const configData: any = {
         organizationId,
         name: newConfig.name,
-        description: '',
+        description: newConfig.description,
         included_modules: ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'],
         allow_threshold: newConfig.allow_threshold,
-        challenge_threshold: newConfig.challenge_threshold
+        challenge_threshold: newConfig.challenge_threshold,
+        allow_redirect_url: newConfig.allow_redirect_url || null,
+        challenge_redirect_url: newConfig.challenge_redirect_url || null,
+        deny_redirect_url: newConfig.deny_redirect_url || null
       };
 
       if (newConfig.enableLocation) {
@@ -155,8 +166,12 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error('Failed to create configuration');
       setNewConfig({ 
         name: '', 
+        description: '',
         allow_threshold: 80, 
         challenge_threshold: 70,
+        allow_redirect_url: '',
+        challenge_redirect_url: '',
+        deny_redirect_url: '',
         enableLocation: false,
         location_latitude: 37.7749,
         location_longitude: -122.4194,
@@ -253,11 +268,22 @@ export default function AdminDashboard() {
               <button onClick={() => setShowConfigForm(!showConfigForm)} style={{ padding: '0.75rem 1.5rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>{showConfigForm ? 'Cancel' : '+ New Configuration'}</button>
             </div>
             {showConfigForm && (
-              <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
+              <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', maxHeight: '80vh', overflowY: 'auto' }}>
                 <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr' }}>
-                  <input type="text" placeholder="Name" value={newConfig.name} onChange={(e) => setNewConfig({ ...newConfig, name: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1' }} />
-                  <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Allow: {newConfig.allow_threshold}%</label><input type="range" min="0" max="100" value={newConfig.allow_threshold} onChange={(e) => setNewConfig({ ...newConfig, allow_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
-                  <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Challenge: {newConfig.challenge_threshold}%</label><input type="range" min="0" max="100" value={newConfig.challenge_threshold} onChange={(e) => setNewConfig({ ...newConfig, challenge_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
+                  <input type="text" placeholder="Configuration Name" value={newConfig.name} onChange={(e) => setNewConfig({ ...newConfig, name: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1' }} />
+                  <textarea placeholder="Description (optional)" value={newConfig.description} onChange={(e) => setNewConfig({ ...newConfig, description: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1', minHeight: '60px', fontFamily: 'inherit' }} />
+                  
+                  <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Allow Threshold: {newConfig.allow_threshold}%</label><input type="range" min="0" max="100" value={newConfig.allow_threshold} onChange={(e) => setNewConfig({ ...newConfig, allow_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
+                  <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Challenge Threshold: {newConfig.challenge_threshold}%</label><input type="range" min="0" max="100" value={newConfig.challenge_threshold} onChange={(e) => setNewConfig({ ...newConfig, challenge_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
+                  
+                  <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
+                    <h4 style={{ margin: '0 0 1rem 0', color: '#92400e' }}>🔗 Redirect URLs (Optional)</h4>
+                    <div style={{ display: 'grid', gap: '1rem' }}>
+                      <input type="url" placeholder="Allow Redirect URL (e.g., https://example.com/allow)" value={newConfig.allow_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, allow_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
+                      <input type="url" placeholder="Challenge Redirect URL (e.g., https://example.com/challenge)" value={newConfig.challenge_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, challenge_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
+                      <input type="url" placeholder="Deny Redirect URL (e.g., https://example.com/deny)" value={newConfig.deny_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, deny_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
+                    </div>
+                  </div>
                   
                   <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#f0f9ff', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' }}>
@@ -267,28 +293,19 @@ export default function AdminDashboard() {
 
                     {newConfig.enableLocation && (
                       <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr 1fr' }}>
-                        <div>
-                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Latitude</label>
-                          <input type="number" step="0.0001" placeholder="37.7749" value={newConfig.location_latitude} onChange={(e) => setNewConfig({ ...newConfig, location_latitude: parseFloat(e.target.value) })} style={{ width: '100%', padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Longitude</label>
-                          <input type="number" step="0.0001" placeholder="-122.4194" value={newConfig.location_longitude} onChange={(e) => setNewConfig({ ...newConfig, location_longitude: parseFloat(e.target.value) })} style={{ width: '100%', padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Radius (km)</label>
-                          <input type="number" step="0.1" placeholder="5" value={newConfig.location_radius_km} onChange={(e) => setNewConfig({ ...newConfig, location_radius_km: parseFloat(e.target.value) })} style={{ width: '100%', padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
-                        </div>
+                        <input type="number" step="0.0001" placeholder="Latitude (37.7749)" value={newConfig.location_latitude} onChange={(e) => setNewConfig({ ...newConfig, location_latitude: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        <input type="number" step="0.0001" placeholder="Longitude (-122.4194)" value={newConfig.location_longitude} onChange={(e) => setNewConfig({ ...newConfig, location_longitude: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        <input type="number" step="0.1" placeholder="Radius in km (5)" value={newConfig.location_radius_km} onChange={(e) => setNewConfig({ ...newConfig, location_radius_km: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
                         <div style={{ gridColumn: '1 / -1' }}>
                           <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Geolocation Penalty: {newConfig.geolocation_penalty}%</label>
                           <input type="range" min="0" max="100" value={newConfig.geolocation_penalty} onChange={(e) => setNewConfig({ ...newConfig, geolocation_penalty: parseInt(e.target.value) })} style={{ width: '100%' }} />
-                          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#1e40af' }}>Reduce confidence score by this amount if geolocation fails or is outside radius</p>
+                          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#1e40af' }}>Reduce confidence score by this % if location fails/outside radius</p>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  <button onClick={handleCreateConfiguration} style={{ padding: '0.75rem 1.5rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', gridColumn: '1 / -1' }}>Create Configuration</button>
+                  <button onClick={handleCreateConfiguration} style={{ padding: '0.75rem 1.5rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', gridColumn: '1 / -1' }}>✓ Create Configuration</button>
                 </div>
               </div>
             )}
@@ -297,13 +314,17 @@ export default function AdminDashboard() {
                 {configurations.map((c) => (
                   <div key={c.id} style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                     <h4 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>{c.name}</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', fontSize: '0.85rem' }}>
+                    {c.description && <p style={{ margin: '0.25rem 0 0.5rem 0', color: '#6b7280', fontSize: '0.9rem' }}>{c.description}</p>}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.85rem' }}>
                       <div><strong>Allow:</strong> {c.allow_threshold}%</div>
                       <div><strong>Challenge:</strong> {c.challenge_threshold}%</div>
+                      {c.allow_redirect_url && <div><strong>✓ Allow:</strong> {c.allow_redirect_url}</div>}
+                      {c.challenge_redirect_url && <div><strong>⚠ Challenge:</strong> {c.challenge_redirect_url}</div>}
+                      {c.deny_redirect_url && <div><strong>✗ Deny:</strong> {c.deny_redirect_url}</div>}
                       {c.location_data && (
                         <>
                           <div><strong>📍 Location:</strong> {c.location_data.latitude?.toFixed(4)}, {c.location_data.longitude?.toFixed(4)}</div>
-                          <div><strong>Radius:</strong> {c.location_data.radius_km} km | <strong>Penalty:</strong> {c.location_data.penalty_percent}%</div>
+                          <div><strong>Radius:</strong> {c.location_data.radius_km}km | <strong>Penalty:</strong> {c.location_data.penalty_percent}%</div>
                         </>
                       )}
                     </div>
