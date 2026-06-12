@@ -45,6 +45,7 @@ export default function AdminDashboard() {
   const [allScores, setAllScores] = useState<ConfidenceScore[]>([]);
   const [filteredScores, setFilteredScores] = useState<ConfidenceScore[]>([]);
   const [emailFilter, setEmailFilter] = useState('');
+  const [configFilter, setConfigFilter] = useState('');
   const [resultFilter, setResultFilter] = useState<'all' | 'allow' | 'challenge' | 'deny'>('all');
 
   const [error, setError] = useState('');
@@ -69,11 +70,14 @@ export default function AdminDashboard() {
     if (emailFilter) {
       filtered = filtered.filter(s => s.email.toLowerCase().includes(emailFilter.toLowerCase()));
     }
+    if (configFilter) {
+      filtered = filtered.filter(s => s.configuration_name === configFilter);
+    }
     if (resultFilter !== 'all') {
       filtered = filtered.filter(s => s.decision === resultFilter);
     }
     setFilteredScores(filtered);
-  }, [allScores, emailFilter, resultFilter]);
+  }, [allScores, emailFilter, configFilter, resultFilter]);
 
   const loadAllData = async (orgId: string) => {
     try {
@@ -262,10 +266,19 @@ export default function AdminDashboard() {
         {activeTab === 'confidence-scores' && (
           <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
             <h2 style={{ marginTop: 0, color: '#1f2937' }}>Confidence Score History</h2>
-            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem' }}>
+            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '1rem' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Email:</label>
                 <input type="text" placeholder="Search email..." value={emailFilter} onChange={(e) => setEmailFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Configuration:</label>
+                <select value={configFilter} onChange={(e) => setConfigFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white' }}>
+                  <option value="">All Configurations</option>
+                  {configurations.map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Result:</label>
@@ -277,7 +290,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button onClick={() => { setEmailFilter(''); setResultFilter('all'); }} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Clear Filters</button>
+                <button onClick={() => { setEmailFilter(''); setConfigFilter(''); setResultFilter('all'); }} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Clear Filters</button>
               </div>
             </div>
             <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {filteredScores.length} of {allScores.length} records</div>
