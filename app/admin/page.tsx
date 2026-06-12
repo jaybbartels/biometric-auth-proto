@@ -11,6 +11,7 @@ interface Configuration {
   name: string;
   allow_threshold: number;
   challenge_threshold: number;
+  location_data?: any;
 }
 
 interface ConfidenceScore {
@@ -39,7 +40,12 @@ export default function AdminDashboard() {
   const [newConfig, setNewConfig] = useState({
     name: '',
     allow_threshold: 80,
-    challenge_threshold: 70
+    challenge_threshold: 70,
+    enableLocation: false,
+    location_latitude: 37.7749,
+    location_longitude: -122.4194,
+    location_radius_km: 5,
+    geolocation_penalty: 15
   });
 
   const [allScores, setAllScores] = useState<ConfidenceScore[]>([]);
@@ -124,19 +130,39 @@ export default function AdminDashboard() {
     }
 
     try {
+      const configData: any = {
+        organizationId,
+        name: newConfig.name,
+        description: '',
+        included_modules: ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'],
+        allow_threshold: newConfig.allow_threshold,
+        challenge_threshold: newConfig.challenge_threshold
+      };
+
+      if (newConfig.enableLocation) {
+        configData.location_latitude = newConfig.location_latitude;
+        configData.location_longitude = newConfig.location_longitude;
+        configData.location_radius_km = newConfig.location_radius_km;
+        configData.geolocation_penalty = newConfig.geolocation_penalty;
+      }
+
       const res = await fetch('/api/admin/configurations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          organizationId,
-          ...newConfig,
-          description: '',
-          included_modules: ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern']
-        })
+        body: JSON.stringify(configData)
       });
 
       if (!res.ok) throw new Error('Failed to create configuration');
-      setNewConfig({ name: '', allow_threshold: 80, challenge_threshold: 70 });
+      setNewConfig({ 
+        name: '', 
+        allow_threshold: 80, 
+        challenge_threshold: 70,
+        enableLocation: false,
+        location_latitude: 37.7749,
+        location_longitude: -122.4194,
+        location_radius_km: 5,
+        geolocation_penalty: 15
+      });
       setShowConfigForm(false);
       loadAllData(organizationId);
       setError('');
@@ -153,21 +179,7 @@ export default function AdminDashboard() {
   };
 
   const TabButton = ({ tab, label }: { tab: TabType; label: string }) => (
-    <button
-      onClick={() => setActiveTab(tab)}
-      style={{
-        padding: '0.75rem 1.5rem',
-        background: activeTab === tab ? '#2e75b6' : '#e5e7eb',
-        color: activeTab === tab ? 'white' : '#374151',
-        border: 'none',
-        borderRadius: '6px',
-        fontWeight: 600,
-        cursor: 'pointer',
-        marginRight: '0.5rem'
-      }}
-    >
-      {label}
-    </button>
+    <button onClick={() => setActiveTab(tab)} style={{ padding: '0.75rem 1.5rem', background: activeTab === tab ? '#2e75b6' : '#e5e7eb', color: activeTab === tab ? 'white' : '#374151', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', marginRight: '0.5rem' }}>{label}</button>
   );
 
   return (
@@ -246,6 +258,36 @@ export default function AdminDashboard() {
                   <input type="text" placeholder="Name" value={newConfig.name} onChange={(e) => setNewConfig({ ...newConfig, name: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1' }} />
                   <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Allow: {newConfig.allow_threshold}%</label><input type="range" min="0" max="100" value={newConfig.allow_threshold} onChange={(e) => setNewConfig({ ...newConfig, allow_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
                   <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Challenge: {newConfig.challenge_threshold}%</label><input type="range" min="0" max="100" value={newConfig.challenge_threshold} onChange={(e) => setNewConfig({ ...newConfig, challenge_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
+                  
+                  <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#f0f9ff', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' }}>
+                      <input type="checkbox" checked={newConfig.enableLocation} onChange={(e) => setNewConfig({ ...newConfig, enableLocation: e.target.checked })} style={{ cursor: 'pointer' }} />
+                      📍 Enable Location Verification (Optional)
+                    </label>
+
+                    {newConfig.enableLocation && (
+                      <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr 1fr' }}>
+                        <div>
+                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Latitude</label>
+                          <input type="number" step="0.0001" placeholder="37.7749" value={newConfig.location_latitude} onChange={(e) => setNewConfig({ ...newConfig, location_latitude: parseFloat(e.target.value) })} style={{ width: '100%', padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Longitude</label>
+                          <input type="number" step="0.0001" placeholder="-122.4194" value={newConfig.location_longitude} onChange={(e) => setNewConfig({ ...newConfig, location_longitude: parseFloat(e.target.value) })} style={{ width: '100%', padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Radius (km)</label>
+                          <input type="number" step="0.1" placeholder="5" value={newConfig.location_radius_km} onChange={(e) => setNewConfig({ ...newConfig, location_radius_km: parseFloat(e.target.value) })} style={{ width: '100%', padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Geolocation Penalty: {newConfig.geolocation_penalty}%</label>
+                          <input type="range" min="0" max="100" value={newConfig.geolocation_penalty} onChange={(e) => setNewConfig({ ...newConfig, geolocation_penalty: parseInt(e.target.value) })} style={{ width: '100%' }} />
+                          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#1e40af' }}>Reduce confidence score by this amount if geolocation fails or is outside radius</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <button onClick={handleCreateConfiguration} style={{ padding: '0.75rem 1.5rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', gridColumn: '1 / -1' }}>Create Configuration</button>
                 </div>
               </div>
@@ -258,6 +300,12 @@ export default function AdminDashboard() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', fontSize: '0.85rem' }}>
                       <div><strong>Allow:</strong> {c.allow_threshold}%</div>
                       <div><strong>Challenge:</strong> {c.challenge_threshold}%</div>
+                      {c.location_data && (
+                        <>
+                          <div><strong>📍 Location:</strong> {c.location_data.latitude?.toFixed(4)}, {c.location_data.longitude?.toFixed(4)}</div>
+                          <div><strong>Radius:</strong> {c.location_data.radius_km} km | <strong>Penalty:</strong> {c.location_data.penalty_percent}%</div>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -278,9 +326,7 @@ export default function AdminDashboard() {
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Configuration:</label>
                 <select value={configFilter} onChange={(e) => setConfigFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white' }}>
                   <option value="">All Configurations</option>
-                  {configurations.map((c) => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
-                  ))}
+                  {configurations.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </div>
               <div>
