@@ -14,15 +14,17 @@ export default async function handler(
   }
 
   try {
-    const { userId, organizationId, configurationId, overallConfidence, decision } = req.body;
+    const { userId, organizationId, configurationId, overallConfidence, decision, testResults } = req.body;
 
-    console.log('Save request:', { userId, organizationId, configurationId });
+    console.log('=== SAVE RESULTS ===');
+    console.log('userId:', userId);
+    console.log('organizationId:', organizationId);
 
     if (!userId || !organizationId || !configurationId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Look up user UUID by email and organization
+    // Look up user UUID
     const { data: userData, error: userError } = await supabase
       .from('org_users')
       .select('id')
@@ -30,70 +32,48 @@ export default async function handler(
       .eq('organization_id', organizationId)
       .single();
 
-    console.log('User lookup:', { userData, userError });
-
     if (userError || !userData) {
       return res.status(401).json({ error: 'User not found in organization' });
     }
 
     const actualUserId = userData.id;
+    console.log('actualUserId:', actualUserId);
 
-    // Insert or update trust scores
-    const { data: insertData, error: insertError } = await supabase
-      .from('trust_scores')
+    // Insert into authentication_events (for admin dashboard)
+    const { error: eventError } = await supabase
+      .from('authentication_events')
       .insert({
+        user_id: actualUserId,
+        organization_id: organizationId,
+        configuration_id: configurationId,
+        overall_confidence: overallConfidence,
+        decision: decision,
+        test_results: { tests: testResults },
+        device_info: { userAgent: req.headers['user-agent'] },
+        ip_address: req.headers['x-forwarded-for'] || 'unknown'
+      });
+
+    console.log('Event insert:', eventError);
+
+    // Upsert to trust_scores
+    const { error: trustError } = await supabase
+      .from('trust_scores')
+      .upsert({
         user_id: actualUserId,
         organization_id: organizationId,
         configuration_id: configurationId,
         confidence_score: overallConfidence,
         decision: decision,
         last_verified_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,organization_id,configuration_id'
       });
 
-    console.log('Insert attempt:', { insertData, insertError });
+    console.log('Trust score upsert:', trustError);
 
-    if (insertError) {
-      console.error('Insert error:', insertError);
-
-      if (insertError.code === '23505' || insertError.message.includes('unique')) {
-        console.log('Updating existing record...');
-
-        const { data: updateData, error: updateError } = await supabase
-          .from('trust_scores')
-          .update({
-            confidence_score: overallConfidence,
-            decision: decision,
-            last_verified_at: new Date().toISOString()
-          })
-          .eq('user_id', actualUserId)
-          .eq('organization_id', organizationId)
-          .eq('configuration_id', configurationId);
-
-        console.log('Update attempt:', { updateData, updateError });
-
-        if (updateError) {
-          console.error('Update error:', updateError);
-          return res.status(400).json({ error: updateError.message });
-        }
-
-        return res.status(200).json({
-          success: true,
-          message: 'Results updated successfully'
-        });
-      }
-
-      return res.status(400).json({ error: insertError.message });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Results saved successfully'
-    });
+    return res.status(200).json({ success: true, message: 'Results saved to database' });
   } catch (error) {
-    console.error('Unexpected error:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown'
-    });
+    console.error('Error:', error);
+    return res.status(500).json({ error: 'Internal server error', details: String(error) });
   }
 }
