@@ -58,30 +58,16 @@ export default function BiometricTestPage() {
     osVersion: 'Unknown'
   });
 
+  const [geoStatus, setGeoStatus] = useState('⏳ Requesting geolocation...');
+
   const testIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentOrganization = organizations.find(o => o.id === selectedOrg);
   const currentConfiguration = configurations.find(c => c.id === selectedConfig);
 
-  // Capture device info on mount
   useEffect(() => {
     captureDeviceInfo();
     loadOrganizations();
-    
-    // Get geolocation
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setDeviceInfo(prev => ({
-            ...prev,
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          }));
-          console.log('Geolocation captured:', position.coords);
-        },
-        (err) => console.log('Geolocation denied:', err)
-      );
-    }
+    requestGeolocation();
   }, []);
 
   const captureDeviceInfo = () => {
@@ -111,6 +97,35 @@ export default function BiometricTestPage() {
     }));
     
     console.log('Device info captured:', { deviceType, browser, osVersion });
+  };
+
+  const requestGeolocation = () => {
+    if (!navigator.geolocation) {
+      setGeoStatus('❌ Geolocation not available');
+      console.log('Geolocation not available');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setDeviceInfo(prev => {
+          const updated = {
+            ...prev,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          };
+          console.log('✅ Geolocation captured:', updated);
+          return updated;
+        });
+        setGeoStatus(`✅ Location captured (±${position.coords.accuracy?.toFixed(0)}m)`);
+      },
+      (err) => {
+        console.log('Geolocation error:', err);
+        setGeoStatus(`❌ Location denied (${err.message})`);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
   };
 
   useEffect(() => {
@@ -204,9 +219,9 @@ export default function BiometricTestPage() {
     setIsSaving(true);
     setError(null);
 
+    console.log('🔍 Current deviceInfo being sent:', deviceInfo);
+    
     try {
-      console.log('Sending device info:', deviceInfo);
-      
       const response = await fetch('/api/biometric/save-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -299,7 +314,7 @@ export default function BiometricTestPage() {
               <div style={{ background: '#dbeafe', padding: '1rem', borderRadius: '6px', marginBottom: '1.5rem', border: '1px solid #93c5fd', fontSize: '0.9rem', color: '#1e40af' }}>
                 <strong>📱 Device Info:</strong>
                 <div>Device: {deviceInfo.deviceType} | Browser: {deviceInfo.browser} | OS: {deviceInfo.osVersion}</div>
-                {deviceInfo.latitude && <div>📍 Location: {deviceInfo.latitude.toFixed(4)}, {deviceInfo.longitude?.toFixed(4)}</div>}
+                <div style={{ marginTop: '0.5rem' }}>{geoStatus}</div>
               </div>
 
               <div style={{ marginBottom: '1rem' }}>
@@ -347,6 +362,7 @@ export default function BiometricTestPage() {
                     <p style={{ margin: '0.25rem 0', color: '#1f2937', fontSize: '0.9rem', fontWeight: 600 }}>🏢 {currentOrganization?.name}</p>
                     <p style={{ margin: '0.25rem 0', color: '#1f2937', fontSize: '0.9rem', fontWeight: 600 }}>⚙️ {currentConfiguration?.name}</p>
                     <p style={{ margin: '0.5rem 0 0 0', color: '#6b7280', fontSize: '0.85rem' }}>📱 {deviceInfo.deviceType} • {deviceInfo.browser} • {deviceInfo.osVersion}</p>
+                    {deviceInfo.latitude && <p style={{ margin: '0.25rem 0 0 0', color: '#6b7280', fontSize: '0.85rem' }}>📍 {deviceInfo.latitude.toFixed(4)}, {deviceInfo.longitude?.toFixed(4)}</p>}
                   </div>
                   <button onClick={handleReset} style={{ padding: '0.5rem 1rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>Stop & Reset</button>
                 </div>
