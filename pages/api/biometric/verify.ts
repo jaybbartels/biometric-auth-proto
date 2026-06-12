@@ -84,13 +84,30 @@ export default async function handler(
   try {
     const { userId, organizationId, configurationId, sessionId, accelerometerData, touchEvents } = req.body;
 
+    console.log('Verify request:', { userId, organizationId, configurationId });
+
     if (!userId || !organizationId || !configurationId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Look up user UUID by email and organization
+    const { data: userData, error: userError } = await supabase
+      .from('org_users')
+      .select('id')
+      .eq('email', userId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    console.log('User lookup:', { userData, userError });
+
+    if (userError || !userData) {
+      return res.status(401).json({ error: 'User not found in organization' });
+    }
+
+    const actualUserId = userData.id;
+
     const testResults: TestResult[] = [];
 
-    // Run all 4 tests
     const gaitConfidence = Math.max(0, Math.min(100, GaitAnalyzer.analyze(accelerometerData || [])));
     testResults.push({
       testName: 'gait_analysis',
@@ -132,12 +149,14 @@ export default async function handler(
       decision = 'challenge';
     }
 
+    console.log('Storing results with userId:', actualUserId);
+
     // Store test results
     const { error: insertError } = await supabase
       .from('test_results')
       .insert(
         testResults.map(result => ({
-          user_id: userId,
+          user_id: actualUserId,
           organization_id: organizationId,
           configuration_id: configurationId,
           test_name: result.testName,
@@ -155,7 +174,7 @@ export default async function handler(
     const { error: eventError } = await supabase
       .from('authentication_events')
       .insert({
-        user_id: userId,
+        user_id: actualUserId,
         organization_id: organizationId,
         configuration_id: configurationId,
         overall_confidence: overallConfidence,
@@ -173,7 +192,7 @@ export default async function handler(
     const { error: trustError } = await supabase
       .from('trust_scores')
       .upsert({
-        user_id: userId,
+        user_id: actualUserId,
         organization_id: organizationId,
         configuration_id: configurationId,
         confidence_score: overallConfidence,
@@ -189,7 +208,7 @@ export default async function handler(
 
     return res.status(200).json({
       sessionId,
-      userId,
+      userId: actualUserId,
       testResults,
       overallConfidence: Math.round(overallConfidence * 100) / 100,
       decision,

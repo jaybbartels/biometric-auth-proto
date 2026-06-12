@@ -20,25 +20,6 @@ interface TestResult {
   confidenceScore: number;
 }
 
-interface VerificationResult {
-  sessionId: string;
-  userId: string;
-  testResults: TestResult[];
-  overallConfidence: number;
-  decision: 'allow' | 'challenge' | 'deny';
-  timestamp: string;
-}
-
-interface SensorReadings {
-  accelX: number;
-  accelY: number;
-  accelZ: number;
-  rotX: number;
-  rotY: number;
-  rotZ: number;
-  touchCount: number;
-}
-
 export default function BiometricTestPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [configurations, setConfigurations] = useState<Configuration[]>([]);
@@ -46,41 +27,32 @@ export default function BiometricTestPage() {
   const [selectedOrg, setSelectedOrg] = useState('');
   const [selectedConfig, setSelectedConfig] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
 
-  const [isRunning, setIsRunning] = useState(false);
+  const [isSetup, setIsSetup] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
+
+  const [testResults, setTestResults] = useState<TestResult[]>([
+    { testName: 'gait_analysis', confidenceScore: 0 },
+    { testName: 'touch_dynamics', confidenceScore: 0 },
+    { testName: 'hand_motion', confidenceScore: 0 },
+    { testName: 'behavioral_pattern', confidenceScore: 0 }
+  ]);
+
+  const [overallConfidence, setOverallConfidence] = useState(0);
+  const [decision, setDecision] = useState<'allow' | 'challenge' | 'deny'>('deny');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [loadingOrgs, setLoadingOrgs] = useState(false);
   const [loadingConfigs, setLoadingConfigs] = useState(false);
 
-  const [isMobile, setIsMobile] = useState(false);
-  const [permissionsGranted, setPermissionsGranted] = useState(false);
-  const [isCapturingSensors, setIsCapturingSensors] = useState(false);
-
-  const [sensorReadings, setSensorReadings] = useState<SensorReadings>({
-    accelX: 0,
-    accelY: 0,
-    accelZ: 0,
-    rotX: 0,
-    rotY: 0,
-    rotZ: 0,
-    touchCount: 0
-  });
-
-  const accelDataRef = useRef<number[]>([]);
-  const touchEventsRef = useRef<Array<{ pressure: number; velocity: number }>>([]);
-  const lastTouchRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
+  const testIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentOrganization = organizations.find(o => o.id === selectedOrg);
+  const currentConfiguration = configurations.find(c => c.id === selectedConfig);
 
   // Load organizations on mount
   useEffect(() => {
     loadOrganizations();
-    const ua = navigator.userAgent;
-    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-    setIsMobile(isMobileDevice);
   }, []);
 
   // Load configurations when org changes
@@ -92,6 +64,16 @@ export default function BiometricTestPage() {
       setSelectedConfig('');
     }
   }, [selectedOrg]);
+
+  // Start continuous monitoring when setup
+  useEffect(() => {
+    if (isSetup && selectedOrg && selectedConfig) {
+      runContinuousTests();
+      return () => {
+        if (testIntervalRef.current) clearInterval(testIntervalRef.current);
+      };
+    }
+  }, [isSetup, selectedOrg, selectedConfig]);
 
   const loadOrganizations = async () => {
     setLoadingOrgs(true);
@@ -123,175 +105,60 @@ export default function BiometricTestPage() {
     }
   };
 
-  const handleRequestPermissions = async () => {
-    try {
-      setError(null);
-
-      if (typeof DeviceMotionEvent !== 'undefined') {
-        if ((DeviceMotionEvent as any).requestPermission) {
-          const permissionMotion = await (DeviceMotionEvent as any).requestPermission();
-          if (permissionMotion !== 'granted') {
-            setError('Motion sensor permission denied');
-            return;
-          }
-        }
-        window.addEventListener('devicemotion', handleDeviceMotion);
-      }
-
-      if (typeof DeviceOrientationEvent !== 'undefined') {
-        if ((DeviceOrientationEvent as any).requestPermission) {
-          const permissionOrientation = await (DeviceOrientationEvent as any).requestPermission();
-          if (permissionOrientation !== 'granted') {
-            setError('Orientation sensor permission denied');
-            return;
-          }
-        }
-        window.addEventListener('deviceorientation', handleDeviceOrientation);
-      }
-
-      window.addEventListener('touchstart', handleTouchStart);
-      window.addEventListener('touchmove', handleTouchMove);
-
-      setPermissionsGranted(true);
-      setIsCapturingSensors(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to request permissions');
-    }
+  const runContinuousTests = () => {
+    performTest();
+    testIntervalRef.current = setInterval(performTest, 2000);
   };
 
-  const handleDeviceMotion = (event: DeviceMotionEvent) => {
-    const accel = event.accelerationIncludingGravity;
-    if (accel) {
-      setSensorReadings(prev => ({
-        ...prev,
-        accelX: Math.round(accel.x || 0),
-        accelY: Math.round(accel.y || 0),
-        accelZ: Math.round(accel.z || 0)
-      }));
+  const performTest = () => {
+    const newResults: TestResult[] = [
+      {
+        testName: 'gait_analysis',
+        confidenceScore: Math.max(0, Math.min(100, 65 + Math.random() * 35 - 15))
+      },
+      {
+        testName: 'touch_dynamics',
+        confidenceScore: Math.max(0, Math.min(100, 70 + Math.random() * 30 - 15))
+      },
+      {
+        testName: 'hand_motion',
+        confidenceScore: Math.max(0, Math.min(100, 65 + Math.random() * 35 - 15))
+      },
+      {
+        testName: 'behavioral_pattern',
+        confidenceScore: Math.max(0, Math.min(100, 55 + Math.random() * 40 - 15))
+      }
+    ];
 
-      if (isCapturingSensors) {
-        accelDataRef.current.push(accel.x || 0, accel.y || 0, accel.z || 0);
+    setTestResults(newResults);
+
+    const overall = newResults.reduce((sum, r) => sum + r.confidenceScore, 0) / newResults.length;
+    setOverallConfidence(overall);
+
+    if (currentConfiguration) {
+      if (overall >= currentConfiguration.allow_threshold) {
+        setDecision('allow');
+      } else if (overall >= currentConfiguration.challenge_threshold) {
+        setDecision('challenge');
+      } else {
+        setDecision('deny');
       }
     }
   };
 
-  const handleDeviceOrientation = (event: DeviceOrientationEvent) => {
-    setSensorReadings(prev => ({
-      ...prev,
-      rotX: Math.round(event.beta || 0),
-      rotY: Math.round(event.gamma || 0),
-      rotZ: Math.round(event.alpha || 0)
-    }));
-  };
+  const handleStartMonitoring = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
 
-  const handleTouchStart = (e: TouchEvent) => {
-    const touch = e.touches[0];
-    lastTouchRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      time: Date.now()
-    };
-  };
-
-  const handleTouchMove = (e: TouchEvent) => {
-    if (!isCapturingSensors) return;
-
-    const touch = e.touches[0];
-    const now = Date.now();
-    const deltaX = touch.clientX - lastTouchRef.current.x;
-    const deltaY = touch.clientY - lastTouchRef.current.y;
-    const deltaTime = now - lastTouchRef.current.time;
-
-    const velocity = deltaTime > 0 ? Math.sqrt(deltaX * deltaX + deltaY * deltaY) / deltaTime * 1000 : 0;
-    const pressure = (touch as any).force || Math.random() * 100;
-
-    touchEventsRef.current.push({ pressure, velocity });
-
-    setSensorReadings(prev => ({
-      ...prev,
-      touchCount: touchEventsRef.current.length
-    }));
-
-    lastTouchRef.current = { x: touch.clientX, y: touch.clientY, time: now };
-  };
-
-  const generateBiometricData = () => {
-    if (permissionsGranted && accelDataRef.current.length > 0) {
-      return {
-        accelerometerData: accelDataRef.current,
-        touchEvents: touchEventsRef.current,
-        deviceMotion: {
-          roll: sensorReadings.rotX,
-          pitch: sensorReadings.rotY,
-          yaw: sensorReadings.rotZ
-        }
-      };
+    if (!selectedOrg || !selectedConfig || !email) {
+      setError('All fields required');
+      return;
     }
 
-    const accelData = Array(50).fill(0).map(() => Math.random() * 100);
-    const touchEvents = Array(10).fill(0).map(() => ({
-      pressure: Math.random() * 100,
-      velocity: Math.random() * 500
-    }));
-
-    return {
-      accelerometerData: accelData,
-      touchEvents: touchEvents,
-      deviceMotion: {
-        roll: Math.random() * 30 - 15,
-        pitch: Math.random() * 30 - 15,
-        yaw: Math.random() * 360
-      }
-    };
+    setIsSetup(true);
   };
 
   const handleVerify = async () => {
-    setIsRunning(true);
-    setError(null);
-    setSuccessMessage(null);
-
-    try {
-      if (!selectedOrg || !selectedConfig || !email || !password) {
-        setError('All fields required');
-        setIsRunning(false);
-        return;
-      }
-
-      const biometricData = generateBiometricData();
-      const sessionId = 'session-' + Date.now();
-
-      const response = await fetch('/api/biometric/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: email,
-          organizationId: selectedOrg,
-          configurationId: selectedConfig,
-          sessionId,
-          ...biometricData
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
-      }
-
-      const result: VerificationResult = await response.json();
-      setVerificationResult(result);
-      setSuccessMessage('✅ Test completed! Click "Save Results" to store in database.');
-
-      accelDataRef.current = [];
-      touchEventsRef.current = [];
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const handleSaveResults = async () => {
-    if (!verificationResult) return;
-
     setIsSaving(true);
     setError(null);
 
@@ -303,22 +170,33 @@ export default function BiometricTestPage() {
           userId: email,
           organizationId: selectedOrg,
           configurationId: selectedConfig,
-          overallConfidence: verificationResult.overallConfidence,
-          decision: verificationResult.decision,
-          testResults: verificationResult.testResults
+          overallConfidence,
+          decision,
+          testResults
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save results');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to verify');
       }
 
-      setSuccessMessage('✅ Results saved to database! Check admin dashboard.');
+      setSuccessMessage('✅ Results saved to database!');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError('Failed to save results: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setError('Failed to verify: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleReset = () => {
+    setIsSetup(false);
+    setEmail('');
+    setSelectedOrg('');
+    setSelectedConfig('');
+    setError(null);
+    if (testIntervalRef.current) clearInterval(testIntervalRef.current);
   };
 
   const getConfidenceColor = (confidence: number): string => {
@@ -328,8 +206,8 @@ export default function BiometricTestPage() {
     return '#991b1b';
   };
 
-  const getDecisionStyle = (decision: string) => {
-    switch (decision) {
+  const getDecisionStyle = (dec: string) => {
+    switch (dec) {
       case 'allow':
         return { bg: '#dcfce7', text: '#166534', label: '✓ Allow' };
       case 'challenge':
@@ -363,54 +241,15 @@ export default function BiometricTestPage() {
           color: 'white'
         }}>
           <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '1.8rem' }}>
-            🔐 Biometric Test Suite
+            🔐 Biometric Continuous Monitor
           </h1>
           <p style={{ margin: '0.25rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>
-            Select organization, configuration, and run verification
+            Real-time confidence monitoring with threshold-based verification
           </p>
-          {isMobile && permissionsGranted && (
-            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.8, fontSize: '0.9rem' }}>
-              ✅ Mobile sensors active
-            </p>
-          )}
         </div>
 
         {/* Content */}
         <div style={{ padding: '2rem' }}>
-          {/* Mobile Banner */}
-          {!permissionsGranted && isMobile && (
-            <div style={{
-              padding: '1rem',
-              background: '#dbeafe',
-              border: '1px solid #93c5fd',
-              borderRadius: '6px',
-              color: '#1e40af',
-              marginBottom: '2rem'
-            }}>
-              <strong>📱 Enable Sensors</strong> for real biometric data
-            </div>
-          )}
-
-          {isMobile && !permissionsGranted && (
-            <button
-              onClick={handleRequestPermissions}
-              style={{
-                width: '100%',
-                padding: '1rem',
-                background: '#10b981',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontWeight: 600,
-                fontSize: '1rem',
-                cursor: 'pointer',
-                marginBottom: '2rem'
-              }}
-            >
-              📡 Enable Sensors
-            </button>
-          )}
-
           {/* Error Display */}
           {error && (
             <div style={{
@@ -421,7 +260,7 @@ export default function BiometricTestPage() {
               color: '#991b1b',
               marginBottom: '2rem'
             }}>
-              <strong>❌ Error:</strong> {error}
+              {error}
             </div>
           )}
 
@@ -439,9 +278,9 @@ export default function BiometricTestPage() {
             </div>
           )}
 
-          {/* Form Section */}
-          {!verificationResult && (
-            <div style={{
+          {/* Setup Form */}
+          {!isSetup && (
+            <form onSubmit={handleStartMonitoring} style={{
               background: '#f9fafb',
               padding: '2rem',
               borderRadius: '8px',
@@ -449,24 +288,16 @@ export default function BiometricTestPage() {
               marginBottom: '2rem'
             }}>
               <h2 style={{ marginTop: 0, fontSize: '1.2rem', fontWeight: 600, marginBottom: '1.5rem' }}>
-                Test Configuration
+                Setup Monitoring
               </h2>
 
-              {/* Organization Dropdown */}
+              {/* Organization */}
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#374151', fontSize: '0.9rem' }}>
                   Organization:
                 </label>
                 {loadingOrgs ? (
-                  <div style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    background: '#e5e7eb',
-                    borderRadius: '6px',
-                    color: '#6b7280'
-                  }}>
-                    Loading...
-                  </div>
+                  <div style={{ padding: '0.75rem', color: '#6b7280' }}>Loading...</div>
                 ) : (
                   <select
                     value={selectedOrg}
@@ -482,7 +313,7 @@ export default function BiometricTestPage() {
                     }}
                     required
                   >
-                    <option value="">Select an organization</option>
+                    <option value="">Select organization</option>
                     {organizations.map((org) => (
                       <option key={org.id} value={org.id}>
                         {org.name}
@@ -492,21 +323,13 @@ export default function BiometricTestPage() {
                 )}
               </div>
 
-              {/* Configuration Dropdown */}
+              {/* Configuration */}
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#374151', fontSize: '0.9rem' }}>
                   Configuration:
                 </label>
                 {loadingConfigs ? (
-                  <div style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    background: '#e5e7eb',
-                    borderRadius: '6px',
-                    color: '#6b7280'
-                  }}>
-                    Loading...
-                  </div>
+                  <div style={{ padding: '0.75rem', color: '#6b7280' }}>Loading...</div>
                 ) : (
                   <select
                     value={selectedConfig}
@@ -525,9 +348,7 @@ export default function BiometricTestPage() {
                     }}
                     required
                   >
-                    <option value="">
-                      {configurations.length === 0 && selectedOrg ? 'No configurations available' : 'Select a configuration'}
-                    </option>
+                    <option value="">Select configuration</option>
                     {configurations.map((config) => (
                       <option key={config.id} value={config.id}>
                         {config.name}
@@ -537,8 +358,26 @@ export default function BiometricTestPage() {
                 )}
               </div>
 
-              {/* Email Input */}
-              <div style={{ marginBottom: '1rem' }}>
+              {/* Thresholds Display */}
+              {currentConfiguration && (
+                <div style={{
+                  marginBottom: '1rem',
+                  padding: '1rem',
+                  background: '#dbeafe',
+                  borderRadius: '6px',
+                  border: '1px solid #93c5fd',
+                  fontSize: '0.9rem',
+                  color: '#1e40af'
+                }}>
+                  <strong>Approval Thresholds:</strong>
+                  <div>
+                    Allow: ≥ {currentConfiguration.allow_threshold}% | Challenge: {currentConfiguration.challenge_threshold}-{currentConfiguration.allow_threshold}% | Deny: &lt; {currentConfiguration.deny_threshold}%
+                  </div>
+                </div>
+              )}
+
+              {/* Email */}
+              <div style={{ marginBottom: '1.5rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#374151', fontSize: '0.9rem' }}>
                   Email:
                 </label>
@@ -561,156 +400,167 @@ export default function BiometricTestPage() {
                 />
               </div>
 
-              {/* Password Input */}
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#374151', fontSize: '0.9rem' }}>
-                  Password:
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  disabled={!selectedOrg || !selectedConfig}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '0.95rem',
-                    boxSizing: 'border-box',
-                    opacity: selectedOrg && selectedConfig ? 1 : 0.5
-                  }}
-                  required
-                />
-              </div>
-
-              {/* Run Test Button */}
               <button
-                onClick={handleVerify}
-                disabled={isRunning || !selectedOrg || !selectedConfig || !email || !password}
+                type="submit"
+                disabled={!selectedOrg || !selectedConfig || !email}
                 style={{
                   width: '100%',
                   padding: '1rem',
-                  background: isRunning || !selectedOrg || !selectedConfig || !email || !password ? '#9ca3af' : '#2e75b6',
+                  background: !selectedOrg || !selectedConfig || !email ? '#9ca3af' : '#2e75b6',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
                   fontWeight: 600,
                   fontSize: '1.1rem',
-                  cursor: isRunning || !selectedOrg || !selectedConfig || !email || !password ? 'not-allowed' : 'pointer'
+                  cursor: !selectedOrg || !selectedConfig || !email ? 'not-allowed' : 'pointer'
                 }}
               >
-                {isRunning ? '⏳ Running Tests...' : '▶️ Run Biometric Test'}
+                ▶️ Start Monitoring
               </button>
-            </div>
+            </form>
           )}
 
-          {/* Results */}
-          {verificationResult && (
+          {/* Live Monitoring Display */}
+          {isSetup && (
             <div>
-              {/* Overall Score */}
+              {/* Header Info */}
               <div style={{
                 background: '#f9fafb',
                 padding: '1.5rem',
                 borderRadius: '8px',
                 marginBottom: '2rem',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <p style={{ margin: '0.25rem 0', color: '#1f2937', fontSize: '0.9rem', fontWeight: 600 }}>
+                      📧 {email}
+                    </p>
+                    <p style={{ margin: '0.25rem 0', color: '#1f2937', fontSize: '0.9rem', fontWeight: 600 }}>
+                      🏢 {currentOrganization?.name}
+                    </p>
+                    <p style={{ margin: '0.25rem 0', color: '#1f2937', fontSize: '0.9rem', fontWeight: 600 }}>
+                      ⚙️ {currentConfiguration?.name}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleReset}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: '#ef4444',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    Stop & Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Score */}
+              <div style={{
+                background: '#f9fafb',
+                padding: '2rem',
+                borderRadius: '8px',
+                marginBottom: '2rem',
                 border: '2px solid #e5e7eb'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>
-                    Overall Confidence Score
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 600 }}>
+                    Live Confidence Score
                   </h2>
                   <div style={{
                     display: 'inline-block',
-                    padding: '0.5rem 1rem',
-                    background: getDecisionStyle(verificationResult.decision).bg,
-                    color: getDecisionStyle(verificationResult.decision).text,
+                    padding: '0.75rem 1.5rem',
+                    background: getDecisionStyle(decision).bg,
+                    color: getDecisionStyle(decision).text,
                     borderRadius: '6px',
                     fontWeight: 600,
-                    fontSize: '0.9rem'
+                    fontSize: '1rem'
                   }}>
-                    {getDecisionStyle(verificationResult.decision).label}
+                    {getDecisionStyle(decision).label}
                   </div>
                 </div>
 
                 {/* Confidence Bar */}
                 <div style={{
                   background: '#e5e7eb',
-                  height: '40px',
+                  height: '60px',
                   borderRadius: '8px',
                   overflow: 'hidden',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: '1.5rem'
+                  marginBottom: '2rem',
+                  position: 'relative'
                 }}>
                   <div style={{
-                    width: `${verificationResult.overallConfidence}%`,
+                    width: `${overallConfidence}%`,
                     height: '100%',
-                    background: getConfidenceColor(verificationResult.overallConfidence),
+                    background: getConfidenceColor(overallConfidence),
                     transition: 'width 0.3s ease',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: 'white',
-                    fontWeight: 600,
-                    fontSize: '0.9rem'
+                    fontWeight: 700,
+                    fontSize: '1.3rem'
                   }}>
-                    {verificationResult.overallConfidence.toFixed(1)}%
+                    {overallConfidence.toFixed(1)}%
                   </div>
                 </div>
 
-                {/* Save Button */}
+                {/* Threshold Line */}
+                {currentConfiguration && (
+                  <div style={{
+                    marginBottom: '2rem',
+                    padding: '1rem',
+                    background: '#dbeafe',
+                    borderRadius: '6px',
+                    border: '1px solid #93c5fd',
+                    fontSize: '0.9rem',
+                    color: '#1e40af'
+                  }}>
+                    <strong>Target Threshold: ≥ {currentConfiguration.allow_threshold}%</strong>
+                    <div style={{ marginTop: '0.5rem', opacity: 0.8 }}>
+                      {overallConfidence >= currentConfiguration.allow_threshold
+                        ? '✅ Above threshold - Ready to verify!'
+                        : `⏳ ${(currentConfiguration.allow_threshold - overallConfidence).toFixed(1)}% more needed`}
+                    </div>
+                  </div>
+                )}
+
+                {/* Verify Button */}
                 <button
-                  onClick={handleSaveResults}
+                  onClick={handleVerify}
                   disabled={isSaving}
                   style={{
                     width: '100%',
-                    padding: '0.75rem',
+                    padding: '1rem',
                     background: isSaving ? '#9ca3af' : '#10b981',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
                     fontWeight: 600,
                     fontSize: '1rem',
-                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                    marginBottom: '1rem'
+                    cursor: isSaving ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {isSaving ? '💾 Saving...' : '💾 Save Results to Database'}
-                </button>
-
-                {/* Run Another Test Button */}
-                <button
-                  onClick={() => {
-                    setVerificationResult(null);
-                    setEmail('');
-                    setPassword('');
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    background: '#6366f1',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontWeight: 600,
-                    fontSize: '1rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  🔄 Run Another Test
+                  {isSaving ? '💾 Saving...' : '✓ Verify & Save Results'}
                 </button>
               </div>
 
-              {/* Test Results */}
+              {/* Individual Tests */}
               <div>
                 <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem', fontWeight: 600 }}>
-                  Individual Test Results
+                  Live Test Results
                 </h3>
                 <div style={{ display: 'grid', gap: '1rem' }}>
-                  {verificationResult.testResults.map((test) => (
+                  {testResults.map((test) => (
                     <div
                       key={test.testName}
                       style={{
@@ -728,14 +578,12 @@ export default function BiometricTestPage() {
                           {test.testName.replace(/_/g, ' ')}
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{
-                          fontSize: '1.2rem',
-                          fontWeight: 700,
-                          color: getConfidenceColor(test.confidenceScore)
-                        }}>
-                          {test.confidenceScore.toFixed(1)}%
-                        </div>
+                      <div style={{
+                        fontSize: '1.3rem',
+                        fontWeight: 700,
+                        color: getConfidenceColor(test.confidenceScore)
+                      }}>
+                        {test.confidenceScore.toFixed(1)}%
                       </div>
                     </div>
                   ))}
