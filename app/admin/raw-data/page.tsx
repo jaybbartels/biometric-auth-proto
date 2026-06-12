@@ -182,7 +182,7 @@ export default function RawDataPage() {
                           </span>
                         </td>
                         <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>
-                          {event.device_info.latitude ? `${event.device_info.latitude.toFixed(3)}, ${event.device_info.longitude.toFixed(3)}` : 'N/A'}
+                          {event.device_info.latitude && event.device_info.longitude ? `${event.device_info.latitude.toFixed(3)}, ${event.device_info.longitude.toFixed(3)}` : 'N/A'}
                         </td>
                         <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>{event.ip_address}</td>
                         <td style={{ padding: '1rem' }}>
