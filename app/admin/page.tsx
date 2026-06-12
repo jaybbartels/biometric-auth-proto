@@ -17,6 +17,7 @@ interface OrgUser {
 }
 
 interface Configuration {
+  description?: string;
   id: string;
   name: string;
   included_modules: any;
