@@ -24,6 +24,7 @@ export default async function handler(
         organization_id,
         overall_confidence,
         decision,
+        test_results,
         device_info,
         ip_address,
         created_at,
@@ -43,10 +44,13 @@ export default async function handler(
       configuration_name: record.configurations?.name || 'Unknown',
       overall_confidence: record.overall_confidence,
       decision: record.decision,
+      test_results: record.test_results || {},
       device_info: record.device_info || {},
       ip_address: record.ip_address,
       created_at: record.created_at
     })) || [];
+
+    console.log('Raw data sample:', transformedData[0]);
 
     return res.status(200).json(transformedData);
   } catch (error) {
