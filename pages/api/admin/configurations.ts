@@ -10,7 +10,7 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    const { organizationId } = req.query;
+    const organizationId = req.query.organizationId || req.body.organizationId;
 
     if (!organizationId) {
       return res.status(400).json({ error: 'organizationId required' });
@@ -48,18 +48,19 @@ export default async function handler(
         .insert({
           organization_id: organizationId,
           name,
-          description,
-          included_modules,
-          allow_threshold,
-          challenge_threshold,
-          deny_threshold,
-          allow_redirect_url,
-          challenge_redirect_url,
-          deny_redirect_url
+          description: description || '',
+          included_modules: included_modules || [],
+          allow_threshold: allow_threshold || 80,
+          challenge_threshold: challenge_threshold || 70,
+          deny_threshold: deny_threshold || 50,
+          allow_redirect_url: allow_redirect_url || '',
+          challenge_redirect_url: challenge_redirect_url || '',
+          deny_redirect_url: deny_redirect_url || ''
         })
         .select();
 
       if (error) {
+        console.error('Insert error:', error);
         return res.status(400).json({ error: error.message });
       }
 
