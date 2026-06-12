@@ -9,15 +9,8 @@ interface AuthEvent {
   configuration_name: string;
   overall_confidence: number;
   decision: string;
-  device_info: {
-    deviceType: string;
-    browser: string;
-    osVersion: string;
-    latitude?: number;
-    longitude?: number;
-    accuracy?: number;
-    userAgent?: string;
-  };
+  device_info: any;
+  test_results: any;
   ip_address: string;
   created_at: string;
 }
@@ -55,10 +48,16 @@ export default function RawDataPage() {
       filtered = filtered.filter(e => e.email.toLowerCase().includes(emailFilter.toLowerCase()));
     }
     if (deviceTypeFilter) {
-      filtered = filtered.filter(e => e.device_info.deviceType === deviceTypeFilter);
+      filtered = filtered.filter(e => {
+        const dt = e.device_info?.deviceType || '';
+        return dt === deviceTypeFilter;
+      });
     }
     if (browserFilter) {
-      filtered = filtered.filter(e => e.device_info.browser === browserFilter);
+      filtered = filtered.filter(e => {
+        const br = e.device_info?.browser || '';
+        return br === browserFilter;
+      });
     }
     if (resultFilter !== 'all') {
       filtered = filtered.filter(e => e.decision === resultFilter);
@@ -72,6 +71,8 @@ export default function RawDataPage() {
       const res = await fetch(`/api/admin/raw-data?organizationId=${orgId}`);
       if (res.ok) {
         const data = await res.json();
+        console.log('Loaded raw data:', data.length, 'records');
+        console.log('Sample record:', data[0]);
         setAllEvents(data);
       }
     } catch (err) {
@@ -86,8 +87,55 @@ export default function RawDataPage() {
     window.location.href = '/admin/login';
   };
 
-  const uniqueDeviceTypes = [...new Set(allEvents.map(e => e.device_info.deviceType))];
-  const uniqueBrowsers = [...new Set(allEvents.map(e => e.device_info.browser))];
+  const getDeviceType = (record: AuthEvent): string => {
+    return record.device_info?.deviceType || 'Unknown';
+  };
+
+  const getBrowser = (record: AuthEvent): string => {
+    return record.device_info?.browser || 'Unknown';
+  };
+
+  const getOsVersion = (record: AuthEvent): string => {
+    return record.device_info?.osVersion || 'Unknown';
+  };
+
+  const getLocation = (record: AuthEvent): string => {
+    const info = record.device_info;
+    if (!info) return 'N/A';
+    if (info.latitude && info.longitude) {
+      return `${info.latitude.toFixed(3)}, ${info.longitude.toFixed(3)}`;
+    }
+    return 'N/A';
+  };
+
+  const hasLocation = (record: AuthEvent): boolean => {
+    return !!(record.device_info?.latitude && record.device_info?.longitude);
+  };
+
+  const getTestScores = (record: AuthEvent): Array<{name: string, score: number}> => {
+    if (!record.test_results) return [];
+    
+    // Handle different formats
+    if (Array.isArray(record.test_results)) {
+      return record.test_results.map((t: any) => ({
+        name: t.testName || t.name || 'Unknown',
+        score: t.confidenceScore || t.score || 0
+      }));
+    }
+    
+    if (record.test_results.tests && Array.isArray(record.test_results.tests)) {
+      return record.test_results.tests.map((t: any) => ({
+        name: t.testName || t.name || 'Unknown',
+        score: t.confidenceScore || t.score || 0
+      }));
+    }
+    
+    return [];
+  };
+
+  const uniqueDeviceTypes = [...new Set(allEvents.map(e => getDeviceType(e)).filter(Boolean))];
+  const uniqueBrowsers = [...new Set(allEvents.map(e => getBrowser(e)).filter(Boolean))];
+  const recordsWithLocation = allEvents.filter(hasLocation).length;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
@@ -140,7 +188,9 @@ export default function RawDataPage() {
 
         {/* Results */}
         <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-          <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {filteredEvents.length} of {allEvents.length} records</div>
+          <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>
+            Showing {filteredEvents.length} of {allEvents.length} records ({recordsWithLocation} with geolocation)
+          </div>
 
           {filteredEvents.length === 0 ? (
             <p style={{ color: '#6b7280', textAlign: 'center', padding: '2rem' }}>No events found</p>
@@ -153,58 +203,75 @@ export default function RawDataPage() {
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Device</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Browser</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>OS</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Score</th>
+                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Overall</th>
+                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Test Scores</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Decision</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Location</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>IP</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Details</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEvents.map((event, idx) => (
-                    <React.Fragment key={idx}>
-                      <tr style={{ borderBottom: '1px solid #e5e7eb', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                        <td style={{ padding: '1rem' }}>{event.email}</td>
-                        <td style={{ padding: '1rem' }}>{event.device_info.deviceType}</td>
-                        <td style={{ padding: '1rem' }}>{event.device_info.browser}</td>
-                        <td style={{ padding: '1rem' }}>{event.device_info.osVersion}</td>
-                        <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{event.overall_confidence?.toFixed(1)}%</td>
-                        <td style={{ padding: '1rem' }}>
-                          <span style={{
-                            padding: '0.25rem 0.75rem',
-                            background: event.decision === 'allow' ? '#dcfce7' : event.decision === 'challenge' ? '#fef3c7' : '#fee2e2',
-                            color: event.decision === 'allow' ? '#166534' : event.decision === 'challenge' ? '#92400e' : '#991b1b',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600
-                          }}>
-                            {event.decision}
-                          </span>
-                        </td>
-                        <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>
-                          {event.device_info.latitude && event.device_info.longitude ? `${event.device_info.latitude.toFixed(3)}, ${event.device_info.longitude.toFixed(3)}` : 'N/A'}
-                        </td>
-                        <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>{event.ip_address}</td>
-                        <td style={{ padding: '1rem' }}>
-                          <button onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)} style={{ padding: '0.25rem 0.75rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
-                            {expandedIndex === idx ? '▼' : '▶'}
-                          </button>
-                        </td>
-                      </tr>
-                      {expandedIndex === idx && (
-                        <tr style={{ background: '#f0f9ff', borderBottom: '1px solid #e5e7eb' }}>
-                          <td colSpan={9} style={{ padding: '1rem' }}>
-                            <pre style={{ background: '#1f2937', color: '#10b981', padding: '1rem', borderRadius: '6px', overflow: 'auto', fontSize: '0.75rem', margin: 0 }}>
-                              {JSON.stringify({
-                                device_info: event.device_info,
-                                timestamp: event.created_at
-                              }, null, 2)}
-                            </pre>
+                  {filteredEvents.map((event, idx) => {
+                    const testScores = getTestScores(event);
+                    return (
+                      <React.Fragment key={idx}>
+                        <tr style={{ borderBottom: '1px solid #e5e7eb', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                          <td style={{ padding: '1rem' }}>{event.email}</td>
+                          <td style={{ padding: '1rem' }}>{getDeviceType(event)}</td>
+                          <td style={{ padding: '1rem' }}>{getBrowser(event)}</td>
+                          <td style={{ padding: '1rem' }}>{getOsVersion(event)}</td>
+                          <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{event.overall_confidence?.toFixed(1)}%</td>
+                          <td style={{ padding: '1rem', fontSize: '0.8rem' }}>
+                            {testScores.length > 0 ? (
+                              <div style={{ display: 'grid', gap: '0.25rem' }}>
+                                {testScores.map((test, i) => (
+                                  <div key={i} style={{ color: '#4b5563' }}>
+                                    {test.name.replace(/_/g, ' ')}: <strong>{test.score.toFixed(1)}%</strong>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#9ca3af' }}>No test data</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            <span style={{
+                              padding: '0.25rem 0.75rem',
+                              background: event.decision === 'allow' ? '#dcfce7' : event.decision === 'challenge' ? '#fef3c7' : '#fee2e2',
+                              color: event.decision === 'allow' ? '#166534' : event.decision === 'challenge' ? '#92400e' : '#991b1b',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: 600
+                            }}>
+                              {event.decision}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280', fontWeight: hasLocation(event) ? 600 : 400 }}>
+                            {getLocation(event)}
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            <button onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)} style={{ padding: '0.25rem 0.75rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                              {expandedIndex === idx ? '▼' : '▶'}
+                            </button>
                           </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  ))}
+                        {expandedIndex === idx && (
+                          <tr style={{ background: '#f0f9ff', borderBottom: '1px solid #e5e7eb' }}>
+                            <td colSpan={9} style={{ padding: '1rem' }}>
+                              <pre style={{ background: '#1f2937', color: '#10b981', padding: '1rem', borderRadius: '6px', overflow: 'auto', fontSize: '0.75rem', margin: 0 }}>
+                                {JSON.stringify({
+                                  overall_confidence: event.overall_confidence,
+                                  test_results: event.test_results,
+                                  device_info: event.device_info,
+                                  timestamp: event.created_at
+                                }, null, 2)}
+                              </pre>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
