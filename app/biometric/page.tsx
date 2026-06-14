@@ -41,6 +41,7 @@ export default function BiometricPage() {
   const [deviceType, setDeviceType] = useState('Unknown');
   const [samplesCollected, setSamplesCollected] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
+  const [locationStatus, setLocationStatus] = useState('');
   
   const [sensorData, setSensorData] = useState<SensorData>({
     gait_analysis: [],
@@ -118,7 +119,9 @@ export default function BiometricPage() {
       setSamplesCollected(prev => prev + 1);
     }, 500);
 
+    // Request location with iOS-specific handling
     if (navigator.geolocation) {
+      setLocationStatus('⏳ Requesting location...');
       geoWatchRef.current = navigator.geolocation.watchPosition(
         (position) => {
           setCurrentLocation({
@@ -126,9 +129,19 @@ export default function BiometricPage() {
             lng: position.coords.longitude,
             timestamp: new Date().toISOString()
           });
+          setLocationStatus('✅ Location active');
         },
-        (err) => console.log('Geolocation error:', err),
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        (err) => {
+          if (err.code === 1) {
+            setLocationStatus('❌ Location denied - iOS: Settings > Privacy > Location > Allow');
+          } else if (err.code === 2) {
+            setLocationStatus('⚠️ Location unavailable');
+          } else {
+            setLocationStatus('❌ Location error');
+          }
+          console.log('Geolocation error:', err);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
   };
@@ -262,6 +275,7 @@ export default function BiometricPage() {
     setCurrentLocation(null);
     setError(null);
     setStatusMessage('');
+    setLocationStatus('');
   };
 
   // INITIAL FORM SCREEN
@@ -372,10 +386,16 @@ export default function BiometricPage() {
                 <div style={{ background: 'white', padding: '0.75rem', borderRadius: '6px' }}>
                   <div style={{ color: '#6b7280' }}>Location</div>
                   <div style={{ fontSize: '0.75rem', color: currentLocation ? '#059669' : '#d1d5db', fontWeight: 600 }}>
-                    {currentLocation ? `✓ ${currentLocation.lat.toFixed(4)}` : '⏳'}
+                    {locationStatus || (currentLocation ? `✓` : '⏳')}
                   </div>
                 </div>
               </div>
+
+              {locationStatus && locationStatus.includes('iOS') && (
+                <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d', fontSize: '0.75rem', color: '#92400e' }}>
+                  📱 {locationStatus}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>

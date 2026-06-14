@@ -68,6 +68,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       true // is_validated
     );
 
+    // Get user ID
+    const { data: userData } = await supabase
+      .from('org_users')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('email', email)
+      .single();
+
+    const userId = userData?.id;
+
+    // Log authentication event
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const deviceInfo = {
+      type: deviceType,
+      timestamp: new Date().toISOString(),
+      user_agent: req.headers['user-agent']
+    };
+
+    const testResults = {
+      gait_match: gaitMatch,
+      touch_match: touchMatch,
+      hand_match: handMatch,
+      behavioral_match: behavioralMatch,
+      facial_match: facialMatch,
+      person_confidence: Math.round(personConfidence)
+    };
+
+    await supabase
+      .from('authentication_events')
+      .insert({
+        user_id: userId,
+        organization_id: organizationId,
+        overall_confidence: Math.round(personConfidence),
+        decision: personConfidence >= 70 ? 'allow' : 'deny',
+        test_results: testResults,
+        ip_address: ipAddress,
+        device_info: deviceInfo,
+        created_at: new Date().toISOString()
+      });
+
     return res.status(200).json({
       success: true,
       is_validated_user: true,
