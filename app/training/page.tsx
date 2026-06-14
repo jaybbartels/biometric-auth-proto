@@ -1,5 +1,8 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+
+const APP_VERSION = '1.0.0';
 
 interface SensorData {
   gait_analysis: number[];
@@ -16,6 +19,9 @@ interface LocationPoint {
 }
 
 export default function TrainingPage() {
+  const searchParams = useSearchParams();
+  const enrollmentCode = searchParams?.get('code') || '';
+
   const [email, setEmail] = useState('');
   const [sessionStarted, setSessionStarted] = useState(false);
   const [deviceType, setDeviceType] = useState('Unknown');
@@ -49,13 +55,16 @@ export default function TrainingPage() {
       setError('Email is required');
       return;
     }
+    if (!enrollmentCode) {
+      setError('Invalid enrollment code. Use link from admin.');
+      return;
+    }
     setSessionStarted(true);
     setSamplesCollected(0);
     setError(null);
     setLocationHistory([]);
     setGeoStatus('⏳ Requesting location...');
     
-    // Start geolocation tracking every 10 seconds
     if (navigator.geolocation) {
       geoWatchRef.current = navigator.geolocation.watchPosition(
         (position) => {
@@ -75,7 +84,6 @@ export default function TrainingPage() {
       );
     }
     
-    // Collect sensor data every 500ms
     trainingIntervalRef.current = setInterval(() => {
       setSensorData(prev => ({
         gait_analysis: [...prev.gait_analysis, Math.random() * 100],
@@ -102,6 +110,8 @@ export default function TrainingPage() {
           deviceType,
           sensorData,
           locationHistory,
+          enrollmentCode,
+          appVersion: APP_VERSION,
           samplesCollected
         })
       });
@@ -112,7 +122,7 @@ export default function TrainingPage() {
         throw new Error(data.error || 'Failed to save profile');
       }
       
-      setSuccessMessage(`✅ Training complete! ${locationHistory.length} location points recorded.`);
+      setSuccessMessage(`✅ Training validated and saved! ${locationHistory.length} location points recorded.`);
       setTimeout(() => {
         setSessionStarted(false);
         setEmail('');
@@ -131,14 +141,22 @@ export default function TrainingPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', fontFamily: 'system-ui' }}>
       <div style={{ maxWidth: '900px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-        <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white' }}>
-          <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🎓 Passive Authentication Training</h1>
-          <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Collect biometric patterns + location history</p>
+        <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🎓 Passive Authentication Training</h1>
+            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Enroll your biometric baseline</p>
+            {enrollmentCode && <p style={{ margin: '0.5rem 0 0 0', opacity: 0.8, fontSize: '0.9rem' }}>✓ Enrollment code verified</p>}
+          </div>
+          <div style={{ textAlign: 'right', fontSize: '0.85rem', opacity: 0.8 }}>
+            <div>v{APP_VERSION}</div>
+            <div>{deviceType}</div>
+          </div>
         </div>
 
         <div style={{ padding: '2rem' }}>
           {error && <div style={{ padding: '1rem', background: '#fee2e2', borderRadius: '6px', color: '#991b1b', marginBottom: '2rem' }}>{error}</div>}
           {successMessage && <div style={{ padding: '1rem', background: '#dcfce7', borderRadius: '6px', color: '#166534', marginBottom: '2rem' }}>{successMessage}</div>}
+          {!enrollmentCode && <div style={{ padding: '1rem', background: '#fef3c7', borderRadius: '6px', color: '#92400e', marginBottom: '2rem' }}>⚠️ Invalid enrollment link. Use the link sent by admin.</div>}
 
           {!sessionStarted ? (
             <form onSubmit={startTraining} style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
@@ -147,7 +165,7 @@ export default function TrainingPage() {
                 <strong>📱 Device:</strong> {deviceType}
               </div>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', marginBottom: '1rem', boxSizing: 'border-box' }} required />
-              <button type="submit" style={{ width: '100%', padding: '1rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>🎓 Start Training</button>
+              <button type="submit" disabled={!enrollmentCode} style={{ width: '100%', padding: '1rem', background: enrollmentCode ? '#7c3aed' : '#9ca3af', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: enrollmentCode ? 'pointer' : 'not-allowed' }}>🎓 Start Training</button>
             </form>
           ) : (
             <div>
@@ -173,7 +191,7 @@ export default function TrainingPage() {
                   <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>Points recorded: {locationHistory.length}</div>
                 </div>
               </div>
-              <button onClick={stopTraining} style={{ width: '100%', padding: '1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>✓ Complete Training & Save</button>
+              <button onClick={stopTraining} style={{ width: '100%', padding: '1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>✓ Complete Training & Validate</button>
             </div>
           )}
         </div>
