@@ -108,10 +108,9 @@ export default function BiometricPage() {
     if (trainingIntervalRef.current) clearInterval(trainingIntervalRef.current);
     
     setIsProcessing(true);
-    setStatusMessage('Comparing against trained baseline...');
+    setStatusMessage('Verifying training profile...');
 
     try {
-      // Compare profile
       const compareRes = await fetch('/api/biometric/compare-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,9 +124,9 @@ export default function BiometricPage() {
 
       const compareData = await compareRes.json();
 
-      if (!compareRes.ok) {
-        setStatusMessage('❌ No validated training profile');
-        setError(compareData.error);
+      if (!compareRes.ok || !compareData.is_validated_user) {
+        setStatusMessage('❌ Not validated');
+        setError('No validated training profile found for this email+phone combination. User must complete training enrollment first.');
         setIsProcessing(false);
         return;
       }
@@ -135,29 +134,27 @@ export default function BiometricPage() {
       const personConfidence = compareData.person_confidence;
       setStatusMessage(`Score: ${personConfidence}% vs Threshold: ${selectedConfig!.allow_threshold}%`);
 
-      // Test against configuration threshold
-      let redirectUrl = '';
+      let redirectUrl: string | null = null;
       
       if (personConfidence >= selectedConfig!.allow_threshold) {
         setStatusMessage(`✅ PASS (${personConfidence}% >= ${selectedConfig!.allow_threshold}%)`);
-        redirectUrl = selectedConfig!.allow_redirect_url;
+        redirectUrl = selectedConfig!.allow_redirect_url || null;
       } else {
         setStatusMessage(`❌ FAIL (${personConfidence}% < ${selectedConfig!.allow_threshold}%)`);
-        redirectUrl = selectedConfig!.deny_redirect_url;
+        redirectUrl = selectedConfig!.deny_redirect_url || null;
       }
 
-      // Redirect after 2 seconds
       setTimeout(() => {
         if (redirectUrl) {
           window.open(redirectUrl, '_blank');
         } else {
-          setError('No redirect URL configured');
+          setError('No redirect URL configured for this result');
           setIsProcessing(false);
         }
       }, 2000);
 
     } catch (err) {
-      setError('Authentication failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setError('Authentication error: ' + (err instanceof Error ? err.message : 'Unknown error'));
       setIsProcessing(false);
     }
   };
@@ -231,6 +228,7 @@ export default function BiometricPage() {
                   style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} 
                   required 
                 />
+                <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#6b7280' }}>Must be registered and trained on this phone</p>
               </div>
 
               <button 
@@ -253,6 +251,7 @@ export default function BiometricPage() {
           ) : (
             <div>
               <p style={{ color: '#1f2937', fontWeight: 600 }}>📧 {email}</p>
+              <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>📱 {deviceType}</p>
               <div style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
                 <h3 style={{ marginTop: 0 }}>📊 Biometric Collection</h3>
                 <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1rem' }}>Samples: <strong style={{ color: '#1f2937' }}>{samplesCollected}</strong>/100+</p>
@@ -284,7 +283,7 @@ export default function BiometricPage() {
                   cursor: isProcessing ? 'not-allowed' : 'pointer' 
                 }}
               >
-                {isProcessing ? '⏳ Processing...' : '✓ Complete & Compare'}
+                {isProcessing ? '⏳ Processing...' : '✓ Complete & Verify'}
               </button>
             </div>
           )}
