@@ -5,10 +5,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
     const { organizationId } = req.query;
 
@@ -16,45 +17,45 @@ export default async function handler(
       return res.status(400).json({ error: 'organizationId required' });
     }
 
-    const { data, error } = await supabase
+    // Get all authentication events for this organization
+    const { data: events, error } = await supabase
       .from('authentication_events')
-      .select(`
-        id,
-        user_id,
-        organization_id,
-        overall_confidence,
-        decision,
-        test_results,
-        device_info,
-        ip_address,
-        created_at,
-        configurations:configuration_id (name),
-        org_users:user_id (email)
-      `)
+      .select('*')
       .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(500);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error:', error);
+      throw error;
+    }
 
-    const transformedData = data?.map((record: any) => ({
-      id: record.id,
-      user_id: record.user_id,
-      email: record.org_users?.email || 'Unknown',
-      organization_id: record.organization_id,
-      configuration_name: record.configurations?.name || 'Unknown',
-      overall_confidence: record.overall_confidence,
-      decision: record.decision,
-      test_results: record.test_results || {},
-      device_info: record.device_info || {},
-      ip_address: record.ip_address,
-      created_at: record.created_at
+    // Get user emails
+    const { data: users } = await supabase
+      .from('org_users')
+      .select('id, email')
+      .eq('organization_id', organizationId);
+
+    const userMap = new Map(users?.map(u => [u.id, u.email]) || []);
+
+    // Format for display
+    const formattedData = events?.map((e: any) => ({
+      id: e.id,
+      user_id: e.user_id,
+      email: userMap.get(e.user_id) || 'Unknown',
+      organization_id: e.organization_id,
+      overall_confidence: e.overall_confidence,
+      decision: e.decision,
+      test_results: e.test_results,
+      ip_address: e.ip_address,
+      device_info: e.device_info,
+      created_at: e.created_at
     })) || [];
 
-    console.log('Raw data sample:', transformedData[0]);
-
-    return res.status(200).json(transformedData);
+    console.log(`Found ${formattedData.length} events for org ${organizationId}`);
+    return res.status(200).json(formattedData);
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown' });
   }
 }
