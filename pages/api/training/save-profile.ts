@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { calculatePattern } from '@/lib/biometric-patterns';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -28,38 +29,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const organizationId = orgData.id;
 
-    // Insert training profile with RAW sensor data arrays
+    // Calculate patterns from raw data
+    const gaitPattern = calculatePattern(sensorData.gait_analysis);
+    const touchPattern = calculatePattern(sensorData.touch_dynamics);
+    const handPattern = calculatePattern(sensorData.hand_motion);
+    const behavioralPattern = calculatePattern(sensorData.behavioral_pattern);
+    const facialPattern = calculatePattern(sensorData.facial_recognition);
+
+    // Check data quality
+    const minQualityScore = Math.min(
+      gaitPattern.quality_score,
+      touchPattern.quality_score,
+      handPattern.quality_score,
+      behavioralPattern.quality_score,
+      facialPattern.quality_score
+    );
+
+    if (minQualityScore < 50) {
+      return res.status(400).json({
+        error: 'Insufficient training data. Please collect more samples (need at least 50 per biometric type).',
+        samplesCollected,
+        qualityScore: minQualityScore
+      });
+    }
+
+    // Insert training profile with PATTERNS (not raw data)
     const { data, error } = await supabase
       .from('biometric_training_profiles')
       .insert({
         organization_id: organizationId,
         email,
         device_type: deviceType,
-        gait_analysis_data: {
-          raw_samples: sensorData.gait_analysis,
-          sample_count: sensorData.gait_analysis.length,
-          average: sensorData.gait_analysis.reduce((a: number, b: number) => a + b, 0) / sensorData.gait_analysis.length
-        },
-        touch_dynamics_data: {
-          raw_samples: sensorData.touch_dynamics,
-          sample_count: sensorData.touch_dynamics.length,
-          average: sensorData.touch_dynamics.reduce((a: number, b: number) => a + b, 0) / sensorData.touch_dynamics.length
-        },
-        hand_motion_data: {
-          raw_samples: sensorData.hand_motion,
-          sample_count: sensorData.hand_motion.length,
-          average: sensorData.hand_motion.reduce((a: number, b: number) => a + b, 0) / sensorData.hand_motion.length
-        },
-        behavioral_pattern_data: {
-          raw_samples: sensorData.behavioral_pattern,
-          sample_count: sensorData.behavioral_pattern.length,
-          average: sensorData.behavioral_pattern.reduce((a: number, b: number) => a + b, 0) / sensorData.behavioral_pattern.length
-        },
-        facial_recognition_data: {
-          raw_samples: sensorData.facial_recognition,
-          sample_count: sensorData.facial_recognition.length,
-          average: sensorData.facial_recognition.reduce((a: number, b: number) => a + b, 0) / sensorData.facial_recognition.length
-        },
+        gait_analysis_data: gaitPattern,
+        touch_dynamics_data: touchPattern,
+        hand_motion_data: handPattern,
+        behavioral_pattern_data: behavioralPattern,
+        facial_recognition_data: facialPattern,
         training_sessions_count: 1
       });
 
@@ -68,12 +73,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: error.message });
     }
 
-    console.log('Training profile saved successfully');
+    console.log('Training profile saved with extracted patterns');
 
     return res.status(200).json({
       success: true,
-      message: 'Training profile saved with raw sensor data',
-      samplesCollected
+      message: 'Training profile saved successfully',
+      samplesCollected,
+      qualityScores: {
+        gait: gaitPattern.quality_score,
+        touch: touchPattern.quality_score,
+        hand: handPattern.quality_score,
+        behavioral: behavioralPattern.quality_score,
+        facial: facialPattern.quality_score
+      }
     });
   } catch (error) {
     console.error('Error:', error);

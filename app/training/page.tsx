@@ -42,8 +42,8 @@ export default function TrainingPage() {
     }
     setSessionStarted(true);
     setSamplesCollected(0);
+    setError(null);
     
-    // Collect raw sensor data every 500ms
     trainingIntervalRef.current = setInterval(() => {
       setSensorData(prev => ({
         gait_analysis: [...prev.gait_analysis, Math.random() * 100],
@@ -72,32 +72,26 @@ export default function TrainingPage() {
         })
       });
       
+      const data = await response.json();
+      
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Failed to save profile');
+        throw new Error(data.error || 'Failed to save profile');
       }
       
-      setSuccessMessage(`✅ Training complete! Saved ${samplesCollected} sensor samples.`);
+      setSuccessMessage(`✅ Training complete! Quality scores: Gait ${data.qualityScores.gait}%, Touch ${data.qualityScores.touch}%, Hand ${data.qualityScores.hand}%, Behavioral ${data.qualityScores.behavioral}%, Facial ${data.qualityScores.facial}%`);
       setTimeout(() => {
         setSessionStarted(false);
         setEmail('');
-        setSensorData({
-          gait_analysis: [],
-          touch_dynamics: [],
-          hand_motion: [],
-          behavioral_pattern: [],
-          facial_recognition: []
-        });
-        setSamplesCollected(0);
-      }, 2000);
+      }, 3000);
     } catch (err) {
-      setError('Failed to save training profile: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setError('Failed to save: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
-  const getAverageScore = (data: number[]): number => {
-    if (data.length === 0) return 0;
-    return data.reduce((a, b) => a + b, 0) / data.length;
+  const getQualityColor = (count: number): string => {
+    if (count >= 50) return '#10b981'; // Green
+    if (count >= 25) return '#f59e0b'; // Orange
+    return '#ef4444'; // Red
   };
 
   return (
@@ -105,7 +99,7 @@ export default function TrainingPage() {
       <div style={{ maxWidth: '900px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
         <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white' }}>
           <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🎓 Passive Authentication Training</h1>
-          <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>Collect raw sensor data for biometric matching</p>
+          <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Collect biometric patterns for authentication matching</p>
         </div>
 
         <div style={{ padding: '2rem' }}>
@@ -116,7 +110,7 @@ export default function TrainingPage() {
             <form onSubmit={startTraining} style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
               <h2 style={{ marginTop: 0 }}>Start Training Session</h2>
               <div style={{ background: '#dbeafe', padding: '1rem', borderRadius: '6px', marginBottom: '1.5rem', border: '1px solid #93c5fd', fontSize: '0.9rem', color: '#1e40af' }}>
-                <strong>📱 Device: {deviceType}</strong>
+                <strong>📱 Device:</strong> {deviceType}
               </div>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', marginBottom: '1rem', boxSizing: 'border-box' }} required />
               <button type="submit" style={{ width: '100%', padding: '1rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>🎓 Start Training</button>
@@ -125,25 +119,22 @@ export default function TrainingPage() {
             <div>
               <p style={{ color: '#1f2937', fontWeight: 600 }}>📧 {email}</p>
               <div style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
-                <h3 style={{ marginTop: 0 }}>📊 Real-time Sensor Data</h3>
-                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1rem' }}>Samples collected: <strong>{samplesCollected}</strong></p>
+                <h3 style={{ marginTop: 0 }}>📊 Training Progress</h3>
+                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1rem' }}>Total samples: <strong style={{ color: '#1f2937' }}>{samplesCollected}</strong> (need 50+ per biometric)</p>
                 
                 {Object.entries(sensorData).map(([key, values]) => (
                   <div key={key} style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.9rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
                       <span style={{ fontWeight: 600 }}>{key.replace(/_/g, ' ')}</span>
-                      <span style={{ color: '#6b7280' }}>Avg: {getAverageScore(values).toFixed(1)}</span>
+                      <span style={{ fontWeight: 700, color: getQualityColor(values.length) }}>{values.length} samples</span>
                     </div>
-                    <div style={{ background: '#e5e7eb', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(100, getAverageScore(values))}%`, height: '100%', background: '#10b981', transition: 'width 0.3s' }} />
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
-                      {values.length} data points collected
+                    <div style={{ background: '#e5e7eb', height: '12px', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${getQualityColor(values.length)}` }}>
+                      <div style={{ width: `${Math.min(100, (values.length / 50) * 100)}%`, height: '100%', background: getQualityColor(values.length), transition: 'width 0.3s' }} />
                     </div>
                   </div>
                 ))}
               </div>
-              <button onClick={stopTraining} style={{ width: '100%', padding: '1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>✓ Complete Training & Save Data</button>
+              <button onClick={stopTraining} style={{ width: '100%', padding: '1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>✓ Save Profile & Extract Patterns</button>
             </div>
           )}
         </div>
