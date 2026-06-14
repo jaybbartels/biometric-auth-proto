@@ -53,7 +53,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({
       success: true,
-      message: 'Profile saved'
+      message: 'Profile saved with 18-feature patterns',
+      qualityScores: {
+        gait: gaitPattern.quality_score,
+        touch: touchPattern.quality_score,
+        hand: handPattern.quality_score,
+        behavioral: behavioralPattern.quality_score,
+        facial: facialPattern.quality_score
+      }
     });
   } catch (error) {
     console.error('Error:', error);
