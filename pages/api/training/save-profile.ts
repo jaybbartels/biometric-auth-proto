@@ -11,9 +11,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { email, deviceType, sessionData } = req.body;
+    const { email, deviceType, sensorData, samplesCollected } = req.body;
 
-    console.log('Saving training profile for:', email);
+    console.log('Saving training profile for:', email, 'with', samplesCollected, 'samples');
 
     // Get Demo Corp organization
     const { data: orgData, error: orgError } = await supabase
@@ -28,18 +28,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const organizationId = orgData.id;
 
-    // Insert training profile
+    // Insert training profile with RAW sensor data arrays
     const { data, error } = await supabase
       .from('biometric_training_profiles')
       .insert({
         organization_id: organizationId,
         email,
         device_type: deviceType,
-        gait_analysis_data: { score: sessionData.gait_analysis },
-        touch_dynamics_data: { score: sessionData.touch_dynamics },
-        hand_motion_data: { score: sessionData.hand_motion },
-        behavioral_pattern_data: { score: sessionData.behavioral_pattern },
-        facial_recognition_data: { score: sessionData.facial_recognition },
+        gait_analysis_data: {
+          raw_samples: sensorData.gait_analysis,
+          sample_count: sensorData.gait_analysis.length,
+          average: sensorData.gait_analysis.reduce((a: number, b: number) => a + b, 0) / sensorData.gait_analysis.length
+        },
+        touch_dynamics_data: {
+          raw_samples: sensorData.touch_dynamics,
+          sample_count: sensorData.touch_dynamics.length,
+          average: sensorData.touch_dynamics.reduce((a: number, b: number) => a + b, 0) / sensorData.touch_dynamics.length
+        },
+        hand_motion_data: {
+          raw_samples: sensorData.hand_motion,
+          sample_count: sensorData.hand_motion.length,
+          average: sensorData.hand_motion.reduce((a: number, b: number) => a + b, 0) / sensorData.hand_motion.length
+        },
+        behavioral_pattern_data: {
+          raw_samples: sensorData.behavioral_pattern,
+          sample_count: sensorData.behavioral_pattern.length,
+          average: sensorData.behavioral_pattern.reduce((a: number, b: number) => a + b, 0) / sensorData.behavioral_pattern.length
+        },
+        facial_recognition_data: {
+          raw_samples: sensorData.facial_recognition,
+          sample_count: sensorData.facial_recognition.length,
+          average: sensorData.facial_recognition.reduce((a: number, b: number) => a + b, 0) / sensorData.facial_recognition.length
+        },
         training_sessions_count: 1
       });
 
@@ -48,12 +68,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: error.message });
     }
 
-    console.log('Training profile saved:', data);
+    console.log('Training profile saved successfully');
 
     return res.status(200).json({
       success: true,
-      message: 'Training profile saved successfully',
-      data
+      message: 'Training profile saved with raw sensor data',
+      samplesCollected
     });
   } catch (error) {
     console.error('Error:', error);

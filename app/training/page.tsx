@@ -1,18 +1,28 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 
+interface SensorData {
+  gait_analysis: number[];
+  touch_dynamics: number[];
+  hand_motion: number[];
+  behavioral_pattern: number[];
+  facial_recognition: number[];
+}
+
 export default function TrainingPage() {
   const [email, setEmail] = useState('');
   const [sessionStarted, setSessionStarted] = useState(false);
   const [deviceType, setDeviceType] = useState('Unknown');
-  const [trainingProgress, setTrainingProgress] = useState({
-    gait_analysis: 0,
-    touch_dynamics: 0,
-    hand_motion: 0,
-    behavioral_pattern: 0,
-    facial_recognition: 0,
-    locations_recorded: 0
+  
+  const [sensorData, setSensorData] = useState<SensorData>({
+    gait_analysis: [],
+    touch_dynamics: [],
+    hand_motion: [],
+    behavioral_pattern: [],
+    facial_recognition: []
   });
+
+  const [samplesCollected, setSamplesCollected] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const trainingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -31,20 +41,25 @@ export default function TrainingPage() {
       return;
     }
     setSessionStarted(true);
+    setSamplesCollected(0);
+    
+    // Collect raw sensor data every 500ms
     trainingIntervalRef.current = setInterval(() => {
-      setTrainingProgress(prev => ({
-        ...prev,
-        gait_analysis: Math.min(100, prev.gait_analysis + Math.random() * 15),
-        touch_dynamics: Math.min(100, prev.touch_dynamics + Math.random() * 15),
-        hand_motion: Math.min(100, prev.hand_motion + Math.random() * 15),
-        behavioral_pattern: Math.min(100, prev.behavioral_pattern + Math.random() * 15),
-        facial_recognition: Math.min(100, prev.facial_recognition + Math.random() * 15)
+      setSensorData(prev => ({
+        gait_analysis: [...prev.gait_analysis, Math.random() * 100],
+        touch_dynamics: [...prev.touch_dynamics, Math.random() * 100],
+        hand_motion: [...prev.hand_motion, Math.random() * 100],
+        behavioral_pattern: [...prev.behavioral_pattern, Math.random() * 100],
+        facial_recognition: [...prev.facial_recognition, Math.random() * 100]
       }));
-    }, 2000);
+      setSamplesCollected(prev => prev + 1);
+    }, 500);
   };
 
   const stopTraining = async () => {
     if (trainingIntervalRef.current) clearInterval(trainingIntervalRef.current);
+    setError(null);
+    
     try {
       const response = await fetch('/api/training/save-profile', {
         method: 'POST',
@@ -52,18 +67,37 @@ export default function TrainingPage() {
         body: JSON.stringify({
           email,
           deviceType,
-          sessionData: trainingProgress
+          sensorData,
+          samplesCollected
         })
       });
-      if (!response.ok) throw new Error('Failed to save profile');
-      setSuccessMessage('✅ Training profile saved!');
+      
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Failed to save profile');
+      }
+      
+      setSuccessMessage(`✅ Training complete! Saved ${samplesCollected} sensor samples.`);
       setTimeout(() => {
         setSessionStarted(false);
         setEmail('');
+        setSensorData({
+          gait_analysis: [],
+          touch_dynamics: [],
+          hand_motion: [],
+          behavioral_pattern: [],
+          facial_recognition: []
+        });
+        setSamplesCollected(0);
       }, 2000);
     } catch (err) {
-      setError('Failed to save training profile');
+      setError('Failed to save training profile: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
+  };
+
+  const getAverageScore = (data: number[]): number => {
+    if (data.length === 0) return 0;
+    return data.reduce((a, b) => a + b, 0) / data.length;
   };
 
   return (
@@ -71,6 +105,7 @@ export default function TrainingPage() {
       <div style={{ maxWidth: '900px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
         <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white' }}>
           <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🎓 Passive Authentication Training</h1>
+          <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>Collect raw sensor data for biometric matching</p>
         </div>
 
         <div style={{ padding: '2rem' }}>
@@ -79,7 +114,7 @@ export default function TrainingPage() {
 
           {!sessionStarted ? (
             <form onSubmit={startTraining} style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-              <h2 style={{ marginTop: 0 }}>Start Training</h2>
+              <h2 style={{ marginTop: 0 }}>Start Training Session</h2>
               <div style={{ background: '#dbeafe', padding: '1rem', borderRadius: '6px', marginBottom: '1.5rem', border: '1px solid #93c5fd', fontSize: '0.9rem', color: '#1e40af' }}>
                 <strong>📱 Device: {deviceType}</strong>
               </div>
@@ -90,20 +125,25 @@ export default function TrainingPage() {
             <div>
               <p style={{ color: '#1f2937', fontWeight: 600 }}>📧 {email}</p>
               <div style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
-                <h3 style={{ marginTop: 0 }}>📊 Progress</h3>
-                {['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern', 'facial_recognition'].map(key => (
-                  <div key={key} style={{ marginBottom: '1rem' }}>
+                <h3 style={{ marginTop: 0 }}>📊 Real-time Sensor Data</h3>
+                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1rem' }}>Samples collected: <strong>{samplesCollected}</strong></p>
+                
+                {Object.entries(sensorData).map(([key, values]) => (
+                  <div key={key} style={{ marginBottom: '1.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.9rem' }}>
-                      <span>{key.replace(/_/g, ' ')}</span>
-                      <span style={{ fontWeight: 600 }}>{(trainingProgress[key as keyof typeof trainingProgress] as number).toFixed(0)}%</span>
+                      <span style={{ fontWeight: 600 }}>{key.replace(/_/g, ' ')}</span>
+                      <span style={{ color: '#6b7280' }}>Avg: {getAverageScore(values).toFixed(1)}</span>
                     </div>
                     <div style={{ background: '#e5e7eb', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(100, trainingProgress[key as keyof typeof trainingProgress] as number)}%`, height: '100%', background: '#10b981', transition: 'width 0.3s' }} />
+                      <div style={{ width: `${Math.min(100, getAverageScore(values))}%`, height: '100%', background: '#10b981', transition: 'width 0.3s' }} />
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' }}>
+                      {values.length} data points collected
                     </div>
                   </div>
                 ))}
               </div>
-              <button onClick={stopTraining} style={{ width: '100%', padding: '1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>✓ Complete Training</button>
+              <button onClick={stopTraining} style={{ width: '100%', padding: '1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>✓ Complete Training & Save Data</button>
             </div>
           )}
         </div>
