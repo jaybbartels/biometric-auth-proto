@@ -28,7 +28,7 @@ interface ConfidenceScore {
   created_at: string;
 }
 
-type TabType = 'overview' | 'users' | 'configurations' | 'confidence-scores';
+type TabType = 'overview' | 'users' | 'configurations' | 'confidence-scores' | 'enrollment';
 
 export default function AdminDashboard() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
@@ -61,6 +61,11 @@ export default function AdminDashboard() {
   const [emailFilter, setEmailFilter] = useState('');
   const [configFilter, setConfigFilter] = useState('');
   const [resultFilter, setResultFilter] = useState<'all' | 'allow' | 'challenge' | 'deny'>('all');
+
+  const [enrollmentEmail, setEnrollmentEmail] = useState('');
+  const [enrollmentCode, setEnrollmentCode] = useState('');
+  const [enrollmentLink, setEnrollmentLink] = useState('');
+  const [enrollmentMessage, setEnrollmentMessage] = useState('');
 
   const [error, setError] = useState('');
 
@@ -186,6 +191,37 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleGenerateEnrollmentCode = async () => {
+    if (!enrollmentEmail || !organizationId) {
+      setError('Email required');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/admin/generate-enrollment-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId, email: enrollmentEmail })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Failed to generate code');
+      
+      setEnrollmentCode(data.enrollmentCode);
+      setEnrollmentLink(data.trainingLink);
+      setEnrollmentMessage(`✓ Enrollment link generated for ${enrollmentEmail}`);
+      setError('');
+    } catch (err) {
+      setError('Failed to generate code: ' + (err instanceof Error ? err.message : ''));
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(enrollmentLink);
+    setEnrollmentMessage('✓ Link copied to clipboard!');
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('adminToken');
     localStorage.removeItem('organizationId');
@@ -213,10 +249,11 @@ export default function AdminDashboard() {
       <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
         {error && <div style={{ padding: '1rem', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '6px', color: '#991b1b', marginBottom: '2rem' }}>{error}</div>}
 
-        <div style={{ marginBottom: '2rem', display: 'flex', gap: '0.5rem' }}>
+        <div style={{ marginBottom: '2rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <TabButton tab="overview" label="📊 Overview" />
           <TabButton tab="users" label="👥 Users" />
           <TabButton tab="configurations" label="⚙️ Configurations" />
+          <TabButton tab="enrollment" label="🎓 Enrollment" />
           <TabButton tab="confidence-scores" label="📈 Confidence Scores" />
         </div>
 
@@ -270,8 +307,8 @@ export default function AdminDashboard() {
             {showConfigForm && (
               <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', maxHeight: '80vh', overflowY: 'auto' }}>
                 <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr' }}>
-                  <input type="text" placeholder="Configuration Name" value={newConfig.name} onChange={(e) => setNewConfig({ ...newConfig, name: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1' }} />
-                  <textarea placeholder="Description (optional)" value={newConfig.description} onChange={(e) => setNewConfig({ ...newConfig, description: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1', minHeight: '60px', fontFamily: 'inherit' }} />
+                  <input type="text" placeholder="Name" value={newConfig.name} onChange={(e) => setNewConfig({ ...newConfig, name: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1' }} />
+                  <textarea placeholder="Description" value={newConfig.description} onChange={(e) => setNewConfig({ ...newConfig, description: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', gridColumn: '1 / -1', minHeight: '60px', fontFamily: 'inherit' }} />
                   
                   <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Allow Threshold: {newConfig.allow_threshold}%</label><input type="range" min="0" max="100" value={newConfig.allow_threshold} onChange={(e) => setNewConfig({ ...newConfig, allow_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
                   <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Challenge Threshold: {newConfig.challenge_threshold}%</label><input type="range" min="0" max="100" value={newConfig.challenge_threshold} onChange={(e) => setNewConfig({ ...newConfig, challenge_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
@@ -279,9 +316,9 @@ export default function AdminDashboard() {
                   <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
                     <h4 style={{ margin: '0 0 1rem 0', color: '#92400e' }}>🔗 Redirect URLs (Optional)</h4>
                     <div style={{ display: 'grid', gap: '1rem' }}>
-                      <input type="url" placeholder="Allow Redirect URL (e.g., https://example.com/allow)" value={newConfig.allow_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, allow_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
-                      <input type="url" placeholder="Challenge Redirect URL (e.g., https://example.com/challenge)" value={newConfig.challenge_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, challenge_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
-                      <input type="url" placeholder="Deny Redirect URL (e.g., https://example.com/deny)" value={newConfig.deny_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, deny_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
+                      <input type="url" placeholder="Allow Redirect URL" value={newConfig.allow_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, allow_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
+                      <input type="url" placeholder="Challenge Redirect URL" value={newConfig.challenge_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, challenge_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
+                      <input type="url" placeholder="Deny Redirect URL" value={newConfig.deny_redirect_url} onChange={(e) => setNewConfig({ ...newConfig, deny_redirect_url: e.target.value })} style={{ padding: '0.75rem', border: '1px solid #fcd34d', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }} />
                     </div>
                   </div>
                   
@@ -293,13 +330,12 @@ export default function AdminDashboard() {
 
                     {newConfig.enableLocation && (
                       <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr 1fr' }}>
-                        <input type="number" step="0.0001" placeholder="Latitude (37.7749)" value={newConfig.location_latitude} onChange={(e) => setNewConfig({ ...newConfig, location_latitude: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
-                        <input type="number" step="0.0001" placeholder="Longitude (-122.4194)" value={newConfig.location_longitude} onChange={(e) => setNewConfig({ ...newConfig, location_longitude: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
-                        <input type="number" step="0.1" placeholder="Radius in km (5)" value={newConfig.location_radius_km} onChange={(e) => setNewConfig({ ...newConfig, location_radius_km: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        <input type="number" step="0.0001" placeholder="Latitude" value={newConfig.location_latitude} onChange={(e) => setNewConfig({ ...newConfig, location_latitude: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        <input type="number" step="0.0001" placeholder="Longitude" value={newConfig.location_longitude} onChange={(e) => setNewConfig({ ...newConfig, location_longitude: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        <input type="number" step="0.1" placeholder="Radius (km)" value={newConfig.location_radius_km} onChange={(e) => setNewConfig({ ...newConfig, location_radius_km: parseFloat(e.target.value) })} style={{ padding: '0.75rem', border: '1px solid #bfdbfe', borderRadius: '6px', boxSizing: 'border-box' }} />
                         <div style={{ gridColumn: '1 / -1' }}>
                           <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Geolocation Penalty: {newConfig.geolocation_penalty}%</label>
                           <input type="range" min="0" max="100" value={newConfig.geolocation_penalty} onChange={(e) => setNewConfig({ ...newConfig, geolocation_penalty: parseInt(e.target.value) })} style={{ width: '100%' }} />
-                          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#1e40af' }}>Reduce confidence score by this % if location fails/outside radius</p>
                         </div>
                       </div>
                     )}
@@ -330,6 +366,39 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'enrollment' && (
+          <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+            <h2 style={{ marginTop: 0, color: '#1f2937' }}>🎓 User Enrollment</h2>
+            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '2rem' }}>
+              <h3 style={{ marginTop: 0, color: '#374151' }}>Generate Training Link</h3>
+              <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>Create enrollment codes for users to train their biometric baseline.</p>
+              <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr auto' }}>
+                <input type="email" placeholder="User email" value={enrollmentEmail} onChange={(e) => setEnrollmentEmail(e.target.value)} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+                <button onClick={handleGenerateEnrollmentCode} style={{ padding: '0.75rem 1.5rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Generate Code</button>
+              </div>
+            </div>
+
+            {enrollmentMessage && <div style={{ padding: '1rem', background: '#dcfce7', border: '1px solid #86efac', borderRadius: '6px', color: '#166534', marginBottom: '2rem' }}>{enrollmentMessage}</div>}
+
+            {enrollmentCode && (
+              <div style={{ background: '#dbeafe', padding: '1.5rem', borderRadius: '8px', border: '1px solid #93c5fd' }}>
+                <h3 style={{ marginTop: 0, color: '#1e40af' }}>Enrollment Code Generated</h3>
+                <div style={{ background: 'white', padding: '1rem', borderRadius: '6px', marginBottom: '1rem', border: '1px solid #93c5fd' }}>
+                  <div style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '0.5rem' }}>Code:</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 700, color: '#1e40af', wordBreak: 'break-all' }}>{enrollmentCode}</div>
+                </div>
+
+                <div style={{ background: 'white', padding: '1rem', borderRadius: '6px', marginBottom: '1rem', border: '1px solid #93c5fd' }}>
+                  <div style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '0.5rem' }}>Training Link:</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#1e40af', wordBreak: 'break-all' }}>{enrollmentLink}</div>
+                </div>
+
+                <button onClick={copyToClipboard} style={{ width: '100%', padding: '0.75rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>📋 Copy Link to Clipboard</button>
               </div>
             )}
           </div>
