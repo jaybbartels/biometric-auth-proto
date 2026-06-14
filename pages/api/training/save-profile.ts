@@ -12,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { email, deviceType, sensorData } = req.body;
+    const { email, deviceType, sensorData, locationHistory } = req.body;
 
     const gaitPattern = calculatePattern(sensorData.gait_analysis);
     const touchPattern = calculatePattern(sensorData.touch_dynamics);
@@ -41,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         email,
         device_type: deviceType,
         device_info: { type: deviceType, captured_at: new Date().toISOString() },
+        location_history: locationHistory || [],
         gait_analysis_data: gaitPattern,
         touch_dynamics_data: touchPattern,
         hand_motion_data: handPattern,
@@ -53,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({
       success: true,
-      message: 'Profile saved with 18-feature patterns',
+      message: 'Profile saved with patterns and location history',
       qualityScores: {
         gait: gaitPattern.quality_score,
         touch: touchPattern.quality_score,
