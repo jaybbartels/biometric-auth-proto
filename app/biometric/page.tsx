@@ -17,6 +17,12 @@ interface Configuration {
   deny_redirect_url?: string;
 }
 
+interface Location {
+  lat: number;
+  lng: number;
+  timestamp: string;
+}
+
 export default function BiometricPage() {
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
@@ -24,8 +30,10 @@ export default function BiometricPage() {
   const [selectedConfig, setSelectedConfig] = useState<Configuration | null>(null);
   const [email, setEmail] = useState('');
   
-  const [sessionStarted, setSessionStarted] = useState(false);
+  const [appStarted, setAppStarted] = useState(false);
   const [deviceType, setDeviceType] = useState('Unknown');
+  const [samplesCollected, setSamplesCollected] = useState(0);
+  const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
   
   const [sensorData, setSensorData] = useState<SensorData>({
     gait_analysis: [],
@@ -35,12 +43,12 @@ export default function BiometricPage() {
     facial_recognition: []
   });
 
-  const [samplesCollected, setSamplesCollected] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   
   const trainingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const geoWatchRef = useRef<number | null>(null);
 
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -79,7 +87,7 @@ export default function BiometricPage() {
     }
   };
 
-  const startSession = async (e: React.FormEvent) => {
+  const startApp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -88,10 +96,11 @@ export default function BiometricPage() {
       return;
     }
 
-    setSessionStarted(true);
+    setAppStarted(true);
     setSamplesCollected(0);
-    setStatusMessage('Collecting biometric data...');
+    setStatusMessage('🟢 App running - collecting biometric data...');
 
+    // Start continuous biometric collection
     trainingIntervalRef.current = setInterval(() => {
       setSensorData(prev => ({
         gait_analysis: [...prev.gait_analysis, Math.random() * 100],
@@ -102,13 +111,29 @@ export default function BiometricPage() {
       }));
       setSamplesCollected(prev => prev + 1);
     }, 500);
+
+    // Start continuous location tracking
+    if (navigator.geolocation) {
+      geoWatchRef.current = navigator.geolocation.watchPosition(
+        (position) => {
+          setCurrentLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            timestamp: new Date().toISOString()
+          });
+        },
+        (err) => console.log('Geolocation error:', err),
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    }
   };
 
-  const completeAuthentication = async () => {
+  const handleVerify = async () => {
     if (trainingIntervalRef.current) clearInterval(trainingIntervalRef.current);
+    if (geoWatchRef.current !== null) navigator.geolocation.clearWatch(geoWatchRef.current);
     
-    setIsProcessing(true);
-    setStatusMessage('Verifying training profile...');
+    setIsVerifying(true);
+    setStatusMessage('🔍 Verifying identity...');
 
     try {
       const compareRes = await fetch('/api/biometric/compare-profile', {
@@ -117,7 +142,13 @@ export default function BiometricPage() {
         body: JSON.stringify({
           email,
           deviceType,
-          sensorData,
+          sensorData: {
+            gait_analysis: sensorData.gait_analysis.slice(0, 5),
+            touch_dynamics: sensorData.touch_dynamics.slice(0, 5),
+            hand_motion: sensorData.hand_motion.slice(0, 5),
+            behavioral_pattern: sensorData.behavioral_pattern.slice(0, 5),
+            facial_recognition: sensorData.facial_recognition.slice(0, 5)
+          },
           organizationId: selectedOrg
         })
       });
@@ -126,21 +157,21 @@ export default function BiometricPage() {
 
       if (!compareRes.ok || !compareData.is_validated_user) {
         setStatusMessage('❌ Not validated');
-        setError('No validated training profile found for this email+phone combination. User must complete training enrollment first.');
-        setIsProcessing(false);
+        setError('No validated training profile found');
+        setIsVerifying(false);
         return;
       }
 
       const personConfidence = compareData.person_confidence;
-      setStatusMessage(`Score: ${personConfidence}% vs Threshold: ${selectedConfig!.allow_threshold}%`);
+      setStatusMessage(`Score: ${personConfidence}% | Threshold: ${selectedConfig!.allow_threshold}%`);
 
       let redirectUrl: string | null = null;
       
       if (personConfidence >= selectedConfig!.allow_threshold) {
-        setStatusMessage(`✅ PASS (${personConfidence}% >= ${selectedConfig!.allow_threshold}%)`);
+        setStatusMessage(`✅ VERIFIED (${personConfidence}%)`);
         redirectUrl = selectedConfig!.allow_redirect_url || null;
       } else {
-        setStatusMessage(`❌ FAIL (${personConfidence}% < ${selectedConfig!.allow_threshold}%)`);
+        setStatusMessage(`❌ DENIED (${personConfidence}%)`);
         redirectUrl = selectedConfig!.deny_redirect_url || null;
       }
 
@@ -148,42 +179,51 @@ export default function BiometricPage() {
         if (redirectUrl) {
           window.open(redirectUrl, '_blank');
         } else {
-          setError('No redirect URL configured for this result');
-          setIsProcessing(false);
+          setError('No redirect URL configured');
+          setIsVerifying(false);
         }
-      }, 2000);
+      }, 1500);
 
     } catch (err) {
-      setError('Authentication error: ' + (err instanceof Error ? err.message : 'Unknown error'));
-      setIsProcessing(false);
+      setError('Verification failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setIsVerifying(false);
     }
   };
 
-  const getQualityColor = (count: number): string => {
-    if (count >= 100) return '#10b981';
-    if (count >= 50) return '#f59e0b';
-    return '#ef4444';
+  const handleReset = () => {
+    if (trainingIntervalRef.current) clearInterval(trainingIntervalRef.current);
+    if (geoWatchRef.current !== null) navigator.geolocation.clearWatch(geoWatchRef.current);
+    
+    setAppStarted(false);
+    setSelectedOrg('');
+    setSelectedConfig(null);
+    setEmail('');
+    setSensorData({
+      gait_analysis: [],
+      touch_dynamics: [],
+      hand_motion: [],
+      behavioral_pattern: [],
+      facial_recognition: []
+    });
+    setSamplesCollected(0);
+    setCurrentLocation(null);
+    setError(null);
+    setStatusMessage('');
   };
 
-  return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', fontFamily: 'system-ui' }}>
-      <div style={{ maxWidth: '900px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-        <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white' }}>
-          <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🔐 Passive Biometric Authentication</h1>
-          <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Verify against trained biometric baseline</p>
-        </div>
+  if (!appStarted) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', fontFamily: 'system-ui' }}>
+        <div style={{ maxWidth: '500px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+          <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white' }}>
+            <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🔐 Biometric Access</h1>
+            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>📱 {deviceType}</p>
+          </div>
 
-        <div style={{ padding: '2rem' }}>
-          {error && <div style={{ padding: '1rem', background: '#fee2e2', borderRadius: '6px', color: '#991b1b', marginBottom: '2rem' }}>{error}</div>}
-          {statusMessage && <div style={{ padding: '1rem', background: '#dbeafe', borderRadius: '6px', color: '#1e40af', marginBottom: '2rem' }}>{statusMessage}</div>}
+          <div style={{ padding: '2rem' }}>
+            {error && <div style={{ padding: '1rem', background: '#fee2e2', borderRadius: '6px', color: '#991b1b', marginBottom: '2rem' }}>{error}</div>}
 
-          {!sessionStarted ? (
-            <form onSubmit={startSession} style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-              <h2 style={{ marginTop: 0 }}>Authenticate</h2>
-              <div style={{ background: '#dbeafe', padding: '1rem', borderRadius: '6px', marginBottom: '1.5rem', border: '1px solid #93c5fd', fontSize: '0.9rem', color: '#1e40af' }}>
-                <strong>📱 Device:</strong> {deviceType}
-              </div>
-              
+            <form onSubmit={startApp} style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>Organization</label>
                 <select 
@@ -192,7 +232,7 @@ export default function BiometricPage() {
                   style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white' }}
                   required
                 >
-                  <option value="">Select organization...</option>
+                  <option value="">Select...</option>
                   {organizations.map((o) => (
                     <option key={o.id} value={o.id}>{o.name}</option>
                   ))}
@@ -211,9 +251,9 @@ export default function BiometricPage() {
                   required
                   disabled={!selectedOrg}
                 >
-                  <option value="">Select configuration...</option>
+                  <option value="">Select...</option>
                   {configurations.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} (threshold: {c.allow_threshold}%)</option>
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
               </div>
@@ -224,11 +264,10 @@ export default function BiometricPage() {
                   type="email" 
                   value={email} 
                   onChange={(e) => setEmail(e.target.value)} 
-                  placeholder="your@email.com" 
+                  placeholder="user@example.com" 
                   style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} 
                   required 
                 />
-                <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#6b7280' }}>Must be registered and trained on this phone</p>
               </div>
 
               <button 
@@ -245,48 +284,82 @@ export default function BiometricPage() {
                   cursor: (selectedOrg && selectedConfig && email) ? 'pointer' : 'not-allowed' 
                 }}
               >
-                🔐 Start Authentication
+                🚀 Start
               </button>
             </form>
-          ) : (
-            <div>
-              <p style={{ color: '#1f2937', fontWeight: 600 }}>📧 {email}</p>
-              <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>📱 {deviceType}</p>
-              <div style={{ background: '#f9fafb', padding: '2rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
-                <h3 style={{ marginTop: 0 }}>📊 Biometric Collection</h3>
-                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '1rem' }}>Samples: <strong style={{ color: '#1f2937' }}>{samplesCollected}</strong>/100+</p>
-                
-                {Object.entries(sensorData).map(([key, values]) => (
-                  <div key={key} style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-                      <span style={{ fontWeight: 600 }}>{key.replace(/_/g, ' ')}</span>
-                      <span style={{ fontWeight: 700, color: getQualityColor(values.length) }}>{values.length}</span>
-                    </div>
-                    <div style={{ background: '#e5e7eb', height: '12px', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${getQualityColor(values.length)}` }}>
-                      <div style={{ width: `${Math.min(100, (values.length / 100) * 100)}%`, height: '100%', background: getQualityColor(values.length), transition: 'width 0.3s' }} />
-                    </div>
-                  </div>
-                ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', fontFamily: 'system-ui', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{ maxWidth: '500px', width: '100%', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+        <div style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', padding: '2rem', color: 'white' }}>
+          <h1 style={{ margin: 0, fontSize: '1.6rem' }}>🟢 ACTIVE</h1>
+          <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>Collecting biometric data...</p>
+        </div>
+
+        <div style={{ padding: '2rem' }}>
+          {error && <div style={{ padding: '1rem', background: '#fee2e2', borderRadius: '6px', color: '#991b1b', marginBottom: '2rem' }}>{error}</div>}
+
+          <div style={{ background: '#f0fdf4', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '2px solid #10b981' }}>
+            <p style={{ margin: '0.5rem 0', fontSize: '0.85rem', color: '#6b7280' }}>Status</p>
+            <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 600, color: '#059669' }}>{statusMessage}</p>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.85rem' }}>
+              <div style={{ background: 'white', padding: '0.75rem', borderRadius: '6px' }}>
+                <div style={{ color: '#6b7280' }}>Samples</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#059669' }}>{samplesCollected}</div>
               </div>
-              
-              <button 
-                onClick={completeAuthentication} 
-                disabled={isProcessing}
-                style={{ 
-                  width: '100%', 
-                  padding: '1rem', 
-                  background: isProcessing ? '#9ca3af' : '#10b981', 
-                  color: 'white', 
-                  border: 'none', 
-                  borderRadius: '6px', 
-                  fontWeight: 600, 
-                  cursor: isProcessing ? 'not-allowed' : 'pointer' 
-                }}
-              >
-                {isProcessing ? '⏳ Processing...' : '✓ Complete & Verify'}
-              </button>
+              <div style={{ background: 'white', padding: '0.75rem', borderRadius: '6px' }}>
+                <div style={{ color: '#6b7280' }}>Location</div>
+                <div style={{ fontSize: '0.75rem', color: currentLocation ? '#059669' : '#d1d5db', fontWeight: 600 }}>
+                  {currentLocation ? `✓ ${currentLocation.lat.toFixed(4)}` : '⏳'}
+                </div>
+              </div>
             </div>
-          )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <button 
+              onClick={handleVerify} 
+              disabled={isVerifying || samplesCollected < 3}
+              style={{ 
+                padding: '1rem', 
+                background: (samplesCollected >= 3 && !isVerifying) ? '#059669' : '#9ca3af', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '6px', 
+                fontWeight: 600, 
+                cursor: (samplesCollected >= 3 && !isVerifying) ? 'pointer' : 'not-allowed',
+                fontSize: '0.95rem'
+              }}
+            >
+              {isVerifying ? '⏳' : '✓ Verify'}
+            </button>
+
+            <button 
+              onClick={handleReset}
+              style={{ 
+                padding: '1rem', 
+                background: '#6b7280', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '6px', 
+                fontWeight: 600, 
+                cursor: 'pointer',
+                fontSize: '0.95rem'
+              }}
+            >
+              ↻ Reset
+            </button>
+          </div>
+
+          <p style={{ margin: '1rem 0 0 0', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
+            {samplesCollected < 3 ? `Need ${3 - samplesCollected} more samples` : 'Ready to verify'}
+          </p>
         </div>
       </div>
     </div>
