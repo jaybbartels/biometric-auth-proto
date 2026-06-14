@@ -22,10 +22,10 @@ interface ConfidenceScore {
   id: string;
   user_id: string;
   email: string;
-  configuration_name: string;
   confidence_score: number;
   decision: string;
   created_at: string;
+  test_results?: any;
 }
 
 type TabType = 'overview' | 'users' | 'configurations' | 'confidence-scores' | 'enrollment';
@@ -59,8 +59,7 @@ export default function AdminDashboard() {
   const [allScores, setAllScores] = useState<ConfidenceScore[]>([]);
   const [filteredScores, setFilteredScores] = useState<ConfidenceScore[]>([]);
   const [emailFilter, setEmailFilter] = useState('');
-  const [configFilter, setConfigFilter] = useState('');
-  const [resultFilter, setResultFilter] = useState<'all' | 'allow' | 'challenge' | 'deny'>('all');
+  const [resultFilter, setResultFilter] = useState<'all' | 'allow' | 'deny'>('all');
 
   const [enrollmentEmail, setEnrollmentEmail] = useState('');
   const [enrollmentCode, setEnrollmentCode] = useState('');
@@ -89,14 +88,11 @@ export default function AdminDashboard() {
     if (emailFilter) {
       filtered = filtered.filter(s => s.email.toLowerCase().includes(emailFilter.toLowerCase()));
     }
-    if (configFilter) {
-      filtered = filtered.filter(s => s.configuration_name === configFilter);
-    }
     if (resultFilter !== 'all') {
       filtered = filtered.filter(s => s.decision === resultFilter);
     }
     setFilteredScores(filtered);
-  }, [allScores, emailFilter, configFilter, resultFilter]);
+  }, [allScores, emailFilter, resultFilter]);
 
   const loadAllData = async (orgId: string) => {
     try {
@@ -110,6 +106,19 @@ export default function AdminDashboard() {
       if (scoresRes.ok) setAllScores(await scoresRes.json());
     } catch (err) {
       console.error('Failed to load data:', err);
+    }
+  };
+
+  const refreshConfidenceScores = async () => {
+    if (!organizationId) return;
+    try {
+      const scoresRes = await fetch(`/api/admin/confidence-scores?organizationId=${organizationId}`);
+      if (scoresRes.ok) {
+        const data = await scoresRes.json();
+        setAllScores(data);
+      }
+    } catch (err) {
+      console.error('Failed to refresh scores:', err);
     }
   };
 
@@ -270,7 +279,7 @@ export default function AdminDashboard() {
                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#166534', marginTop: '0.5rem' }}>{configurations.length}</div>
               </div>
               <div style={{ background: '#fefce8', padding: '1.5rem', borderRadius: '8px', border: '1px solid #fef08a' }}>
-                <div style={{ fontSize: '0.9rem', color: '#92400e', fontWeight: 600 }}>Confidence Records</div>
+                <div style={{ fontSize: '0.9rem', color: '#92400e', fontWeight: 600 }}>Auth Records</div>
                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#92400e', marginTop: '0.5rem' }}>{allScores.length}</div>
               </div>
             </div>
@@ -406,30 +415,25 @@ export default function AdminDashboard() {
 
         {activeTab === 'confidence-scores' && (
           <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, color: '#1f2937' }}>Confidence Score History</h2>
-            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+              <h2 style={{ margin: 0, color: '#1f2937' }}>Confidence Score History</h2>
+              <button onClick={refreshConfidenceScores} style={{ padding: '0.75rem 1.5rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>🔄 Refresh</button>
+            </div>
+            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Email:</label>
                 <input type="text" placeholder="Search email..." value={emailFilter} onChange={(e) => setEmailFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Configuration:</label>
-                <select value={configFilter} onChange={(e) => setConfigFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white' }}>
-                  <option value="">All Configurations</option>
-                  {configurations.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Result:</label>
                 <select value={resultFilter} onChange={(e) => setResultFilter(e.target.value as any)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white' }}>
                   <option value="all">All Results</option>
                   <option value="allow">Allow</option>
-                  <option value="challenge">Challenge</option>
                   <option value="deny">Deny</option>
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button onClick={() => { setEmailFilter(''); setConfigFilter(''); setResultFilter('all'); }} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Clear Filters</button>
+                <button onClick={() => { setEmailFilter(''); setResultFilter('all'); }} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Clear</button>
               </div>
             </div>
             <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {filteredScores.length} of {allScores.length} records</div>
@@ -438,7 +442,6 @@ export default function AdminDashboard() {
                 <thead>
                   <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Email</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Configuration</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Score</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Decision</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Timestamp</th>
@@ -448,9 +451,8 @@ export default function AdminDashboard() {
                   {filteredScores.map((s, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                       <td style={{ padding: '1rem' }}>{s.email}</td>
-                      <td style={{ padding: '1rem' }}>{s.configuration_name}</td>
-                      <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{s.confidence_score?.toFixed(1)}%</td>
-                      <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.75rem', background: s.decision === 'allow' ? '#dcfce7' : s.decision === 'challenge' ? '#fef3c7' : '#fee2e2', color: s.decision === 'allow' ? '#166534' : s.decision === 'challenge' ? '#92400e' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>{s.decision}</span></td>
+                      <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{s.confidence_score}%</td>
+                      <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.75rem', background: s.decision === 'allow' ? '#dcfce7' : '#fee2e2', color: s.decision === 'allow' ? '#166534' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>{s.decision}</span></td>
                       <td style={{ padding: '1rem', color: '#6b7280', fontSize: '0.8rem' }}>{new Date(s.created_at).toLocaleString()}</td>
                     </tr>
                   ))}
