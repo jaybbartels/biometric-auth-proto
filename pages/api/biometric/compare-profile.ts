@@ -68,7 +68,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       true // is_validated
     );
 
-    // Get user ID
+    // Try to get user ID (optional - user might not be in org_users)
     const { data: userData } = await supabase
       .from('org_users')
       .select('id')
@@ -76,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('email', email)
       .single();
 
-    const userId = userData?.id;
+    const userId = userData?.id || null;
 
     // Log authentication event
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
@@ -95,7 +95,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       person_confidence: Math.round(personConfidence)
     };
 
-    await supabase
+    // Insert authentication event
+    const { data: eventData, error: eventError } = await supabase
       .from('authentication_events')
       .insert({
         user_id: userId,
@@ -103,10 +104,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         overall_confidence: Math.round(personConfidence),
         decision: personConfidence >= 70 ? 'allow' : 'deny',
         test_results: testResults,
-        ip_address: ipAddress,
+        ip_address: String(ipAddress),
         device_info: deviceInfo,
         created_at: new Date().toISOString()
-      });
+      })
+      .select();
+
+    if (eventError) {
+      console.error('Failed to insert authentication_events:', eventError);
+      throw eventError;
+    }
+
+    console.log('✅ Auth event logged:', eventData);
 
     return res.status(200).json({
       success: true,
@@ -117,10 +126,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       behavioral_match: behavioralMatch,
       facial_match: facialMatch,
       person_confidence: Math.round(personConfidence),
-      training_profile_id: trainingProfile.id
+      training_profile_id: trainingProfile.id,
+      event_logged: !!eventData
     });
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown' });
   }
 }
