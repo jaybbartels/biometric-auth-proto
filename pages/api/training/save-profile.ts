@@ -14,6 +14,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const { email, deviceType, sensorData, locationHistory, enrollmentCode, appVersion } = req.body;
 
+    // Normalize device type to lowercase
+    const normalizedDeviceType = deviceType.toLowerCase();
+
     const { data: inviteData, error: inviteError } = await supabase
       .from('enrollment_invites')
       .select('id, organization_id')
@@ -43,8 +46,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .insert({
         organization_id: inviteData.organization_id,
         email,
-        device_type: deviceType,
-        device_info: { type: deviceType, captured_at: new Date().toISOString(), app_version: appVersion },
+        device_type: normalizedDeviceType,
+        device_info: { type: normalizedDeviceType, captured_at: new Date().toISOString(), app_version: appVersion },
         enrollment_code: enrollmentCode,
         location_history: locationHistory || [],
         gait_analysis_data: gaitPattern,

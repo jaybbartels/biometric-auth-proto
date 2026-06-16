@@ -158,13 +158,14 @@ export default function BiometricPage() {
 
     try {
       const getLast15 = (arr: number[]) => arr.slice(-SAMPLE_TARGET);
+      const normalizedDeviceType = deviceType.toLowerCase();
 
       const compareRes = await fetch('/api/biometric/compare-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email,
-          deviceType,
+          deviceType: normalizedDeviceType,
           organizationId: selectedOrg,
           configurationId: selectedConfig?.id,
           sensorData: {

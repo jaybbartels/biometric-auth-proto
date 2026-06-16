@@ -13,7 +13,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { email, deviceType, sensorData, organizationId, configurationId } = req.body;
+    let { email, deviceType, sensorData, organizationId, configurationId } = req.body;
+
+    // Normalize device type to lowercase for consistent matching
+    deviceType = deviceType.toLowerCase();
 
     console.log('=== COMPARE PROFILE DEBUG ===');
     console.log('Searching for:', { email, deviceType, organizationId });
@@ -30,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     console.log('All profiles in org:', allProfiles);
 
-    // Load training profile
+    // Load training profile - search with lowercase device_type
     const { data: trainingProfile, error: profileError } = await supabase
       .from('biometric_training_profiles')
       .select('*')
