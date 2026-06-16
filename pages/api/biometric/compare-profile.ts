@@ -24,11 +24,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     organizationId = orgId || '';
 
     console.log('=== COMPARE PROFILE START ===');
-    console.log('Input:', { email, deviceType, organizationId });
+    console.log('Input:', { email, deviceType, organizationId, configurationId });
 
     if (!email || !organizationId || !sensorData) {
       console.log('Missing required fields');
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!configurationId) {
+      console.log('Missing configuration ID');
+      return res.status(400).json({ error: 'Configuration ID is required' });
     }
 
     // Load training profile
@@ -69,18 +74,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     console.log('Step 3: Getting configuration modules...');
     let includedModules = ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
-    if (configurationId) {
-      const { data: config, error: configError } = await supabase
-        .from('configurations')
-        .select('included_modules')
-        .eq('id', configurationId)
-        .single();
-      
-      if (configError) {
-        console.log('Config error:', configError);
-      } else if (config?.included_modules) {
-        includedModules = config.included_modules;
-      }
+    
+    const { data: config, error: configError } = await supabase
+      .from('configurations')
+      .select('included_modules')
+      .eq('id', configurationId)
+      .single();
+    
+    if (configError) {
+      console.log('Config error:', configError);
+    } else if (config?.included_modules) {
+      includedModules = config.included_modules;
     }
 
     console.log('Step 4: Calculating patterns...');
@@ -146,6 +150,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .insert({
         user_id: userId,
         organization_id: organizationId,
+        configuration_id: configurationId,
         overall_confidence: personConfidence,
         decision: personConfidence >= 70 ? 'allow' : 'deny',
         test_results: testResults,
@@ -187,8 +192,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     return res.status(500).json({ 
       error: 'Internal server error', 
-      details: errorMessage,
-      step: `Processing ${email} on ${deviceType}`
+      details: errorMessage
     });
   }
 }
