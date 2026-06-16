@@ -54,9 +54,12 @@ export default function BiometricPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
+  const [debugMessage, setDebugMessage] = useState('');
   
   const trainingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const geoWatchRef = useRef<number | null>(null);
+
+  const SAMPLE_TARGET = 15; // Changed from 100+ to 15
 
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -98,6 +101,7 @@ export default function BiometricPage() {
   const startApp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setDebugMessage('');
 
     if (!selectedOrg || !selectedConfig || !email) {
       setError('Organization, configuration, and email required');
@@ -106,7 +110,7 @@ export default function BiometricPage() {
 
     setAppStarted(true);
     setSamplesCollected(0);
-    setStatusMessage('🟢 App running - collecting biometric data...');
+    setStatusMessage(`🟢 App running - collecting 15 biometric samples...`);
 
     trainingIntervalRef.current = setInterval(() => {
       setSensorData(prev => ({
@@ -119,7 +123,6 @@ export default function BiometricPage() {
       setSamplesCollected(prev => prev + 1);
     }, 500);
 
-    // Request location with iOS-specific handling
     if (navigator.geolocation) {
       setLocationStatus('⏳ Requesting location...');
       geoWatchRef.current = navigator.geolocation.watchPosition(
@@ -139,7 +142,6 @@ export default function BiometricPage() {
           } else {
             setLocationStatus('❌ Location error');
           }
-          console.log('Geolocation error:', err);
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
@@ -152,30 +154,37 @@ export default function BiometricPage() {
     
     setIsVerifying(true);
     setStatusMessage('🔍 Verifying identity...');
+    setDebugMessage('Sending to API...');
 
     try {
+      // Take only LAST 15 samples from each biometric
+      const getLast15 = (arr: number[]) => arr.slice(-SAMPLE_TARGET);
+
       const compareRes = await fetch('/api/biometric/compare-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email,
           deviceType,
+          organizationId: selectedOrg,
+          configurationId: selectedConfig?.id,
           sensorData: {
-            gait_analysis: sensorData.gait_analysis.slice(0, 5),
-            touch_dynamics: sensorData.touch_dynamics.slice(0, 5),
-            hand_motion: sensorData.hand_motion.slice(0, 5),
-            behavioral_pattern: sensorData.behavioral_pattern.slice(0, 5),
-            facial_recognition: sensorData.facial_recognition.slice(0, 5)
-          },
-          organizationId: selectedOrg
+            gait_analysis: getLast15(sensorData.gait_analysis),
+            touch_dynamics: getLast15(sensorData.touch_dynamics),
+            hand_motion: getLast15(sensorData.hand_motion),
+            behavioral_pattern: getLast15(sensorData.behavioral_pattern),
+            facial_recognition: getLast15(sensorData.facial_recognition)
+          }
         })
       });
 
       const compareData = await compareRes.json();
+      
+      setDebugMessage(`API Response: ${compareRes.status} - ${JSON.stringify(compareData).substring(0, 100)}`);
 
       if (!compareRes.ok || !compareData.is_validated_user) {
         setStatusMessage('❌ Not validated');
-        setError('No validated training profile found');
+        setError(compareData.error || 'No validated training profile found');
         setIsVerifying(false);
         return;
       }
@@ -206,7 +215,9 @@ export default function BiometricPage() {
 
       setIsVerifying(false);
     } catch (err) {
-      setError('Verification failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      setError('Verification failed: ' + errMsg);
+      setDebugMessage(`Error: ${errMsg}`);
       setIsVerifying(false);
     }
   };
@@ -222,7 +233,8 @@ export default function BiometricPage() {
     setSamplesCollected(0);
     setVerificationComplete(false);
     setVerificationResult(null);
-    setStatusMessage('🟢 App running - collecting biometric data...');
+    setStatusMessage(`🟢 App running - collecting 15 biometric samples...`);
+    setDebugMessage('');
 
     trainingIntervalRef.current = setInterval(() => {
       setSensorData(prev => ({
@@ -252,6 +264,7 @@ export default function BiometricPage() {
       facial_recognition: []
     });
     setSamplesCollected(0);
+    setDebugMessage('');
   };
 
   const handleFullReset = () => {
@@ -276,6 +289,7 @@ export default function BiometricPage() {
     setError(null);
     setStatusMessage('');
     setLocationStatus('');
+    setDebugMessage('');
   };
 
   // INITIAL FORM SCREEN
@@ -378,10 +392,10 @@ export default function BiometricPage() {
               <p style={{ margin: '0.5rem 0', fontSize: '0.85rem', color: '#6b7280' }}>Status</p>
               <p style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 600, color: '#059669' }}>{statusMessage}</p>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.85rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
                 <div style={{ background: 'white', padding: '0.75rem', borderRadius: '6px' }}>
                   <div style={{ color: '#6b7280' }}>Samples</div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#059669' }}>{samplesCollected}</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#059669' }}>{samplesCollected}/{SAMPLE_TARGET}</div>
                 </div>
                 <div style={{ background: 'white', padding: '0.75rem', borderRadius: '6px' }}>
                   <div style={{ color: '#6b7280' }}>Location</div>
@@ -392,24 +406,30 @@ export default function BiometricPage() {
               </div>
 
               {locationStatus && locationStatus.includes('iOS') && (
-                <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d', fontSize: '0.75rem', color: '#92400e' }}>
+                <div style={{ padding: '0.75rem', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d', fontSize: '0.75rem', color: '#92400e' }}>
                   📱 {locationStatus}
                 </div>
               )}
             </div>
 
+            {debugMessage && (
+              <div style={{ padding: '0.75rem', background: '#f3f4f6', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.75rem', color: '#4b5563', marginBottom: '1rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                DEBUG: {debugMessage}
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
               <button 
                 onClick={handleVerify} 
-                disabled={isVerifying || samplesCollected < 3}
+                disabled={isVerifying || samplesCollected < SAMPLE_TARGET}
                 style={{ 
                   padding: '1rem', 
-                  background: (samplesCollected >= 3 && !isVerifying) ? '#059669' : '#9ca3af', 
+                  background: (samplesCollected >= SAMPLE_TARGET && !isVerifying) ? '#059669' : '#9ca3af', 
                   color: 'white', 
                   border: 'none', 
                   borderRadius: '6px', 
                   fontWeight: 600, 
-                  cursor: (samplesCollected >= 3 && !isVerifying) ? 'pointer' : 'not-allowed',
+                  cursor: (samplesCollected >= SAMPLE_TARGET && !isVerifying) ? 'pointer' : 'not-allowed',
                   fontSize: '0.95rem'
                 }}
               >
@@ -434,7 +454,7 @@ export default function BiometricPage() {
             </div>
 
             <p style={{ margin: '0', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
-              {samplesCollected < 3 ? `Need ${3 - samplesCollected} more samples` : 'Ready to verify'}
+              {samplesCollected < SAMPLE_TARGET ? `Need ${SAMPLE_TARGET - samplesCollected} more samples (~${Math.ceil((SAMPLE_TARGET - samplesCollected) * 0.5)}s)` : 'Ready to verify'}
             </p>
           </div>
         </div>
