@@ -59,7 +59,7 @@ export default function BiometricPage() {
   const trainingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const geoWatchRef = useRef<number | null>(null);
 
-  const SAMPLE_TARGET = 15; // Changed from 100+ to 15
+  const SAMPLE_TARGET = 15;
 
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -157,7 +157,6 @@ export default function BiometricPage() {
     setDebugMessage('Sending to API...');
 
     try {
-      // Take only LAST 15 samples from each biometric
       const getLast15 = (arr: number[]) => arr.slice(-SAMPLE_TARGET);
 
       const compareRes = await fetch('/api/biometric/compare-profile', {
@@ -418,42 +417,43 @@ export default function BiometricPage() {
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-              <button 
-                onClick={handleVerify} 
-                disabled={isVerifying || samplesCollected < SAMPLE_TARGET}
-                style={{ 
-                  padding: '1rem', 
-                  background: (samplesCollected >= SAMPLE_TARGET && !isVerifying) ? '#059669' : '#9ca3af', 
-                  color: 'white', 
-                  border: 'none', 
-                  borderRadius: '6px', 
-                  fontWeight: 600, 
-                  cursor: (samplesCollected >= SAMPLE_TARGET && !isVerifying) ? 'pointer' : 'not-allowed',
-                  fontSize: '0.95rem'
-                }}
-              >
-                {isVerifying ? '⏳' : '✓ Verify'}
-              </button>
+            <button 
+              onClick={handleVerify} 
+              disabled={isVerifying || samplesCollected < SAMPLE_TARGET}
+              style={{ 
+                width: '100%',
+                padding: '1rem', 
+                background: (samplesCollected >= SAMPLE_TARGET && !isVerifying) ? '#059669' : '#9ca3af', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '6px', 
+                fontWeight: 600, 
+                cursor: (samplesCollected >= SAMPLE_TARGET && !isVerifying) ? 'pointer' : 'not-allowed',
+                fontSize: '0.95rem',
+                marginBottom: '0.75rem'
+              }}
+            >
+              {isVerifying ? '⏳ Verifying...' : '✓ Verify'}
+            </button>
 
-              <button 
-                onClick={handleFullReset}
-                style={{ 
-                  padding: '1rem', 
-                  background: '#6b7280', 
-                  color: 'white', 
-                  border: 'none', 
-                  borderRadius: '6px', 
-                  fontWeight: 600, 
-                  cursor: 'pointer',
-                  fontSize: '0.95rem'
-                }}
-              >
-                ↻ Reset
-              </button>
-            </div>
+            <button 
+              onClick={handleFullReset}
+              style={{ 
+                width: '100%',
+                padding: '1rem', 
+                background: '#6b7280', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '6px', 
+                fontWeight: 600, 
+                cursor: 'pointer',
+                fontSize: '0.95rem'
+              }}
+            >
+              ↻ Reset
+            </button>
 
-            <p style={{ margin: '0', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
+            <p style={{ margin: '1rem 0 0 0', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
               {samplesCollected < SAMPLE_TARGET ? `Need ${SAMPLE_TARGET - samplesCollected} more samples (~${Math.ceil((SAMPLE_TARGET - samplesCollected) * 0.5)}s)` : 'Ready to verify'}
             </p>
           </div>
@@ -487,39 +487,41 @@ export default function BiometricPage() {
             <p style={{ margin: '0', fontSize: '1rem', fontWeight: 600, color: '#1f2937' }}>{email}</p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-            <button 
-              onClick={handleTryAgain}
-              style={{ 
-                padding: '1rem', 
-                background: '#2e75b6', 
-                color: 'white', 
-                border: 'none', 
-                borderRadius: '6px', 
-                fontWeight: 600, 
-                cursor: 'pointer',
-                fontSize: '0.9rem'
-              }}
-            >
-              🔄 Try Again
-            </button>
+          <button 
+            onClick={handleTryAgain}
+            style={{ 
+              width: '100%',
+              padding: '1rem', 
+              background: '#2e75b6', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '6px', 
+              fontWeight: 600, 
+              cursor: 'pointer',
+              fontSize: '0.95rem',
+              marginBottom: '0.75rem'
+            }}
+          >
+            🔄 Try Again
+          </button>
 
-            <button 
-              onClick={handleChangeConfig}
-              style={{ 
-                padding: '1rem', 
-                background: '#7c3aed', 
-                color: 'white', 
-                border: 'none', 
-                borderRadius: '6px', 
-                fontWeight: 600, 
-                cursor: 'pointer',
-                fontSize: '0.9rem'
-              }}
-            >
-              ⚙️ Config
-            </button>
-          </div>
+          <button 
+            onClick={handleChangeConfig}
+            style={{ 
+              width: '100%',
+              padding: '1rem', 
+              background: '#7c3aed', 
+              color: 'white', 
+              border: 'none', 
+              borderRadius: '6px', 
+              fontWeight: 600, 
+              cursor: 'pointer',
+              fontSize: '0.95rem',
+              marginBottom: '0.75rem'
+            }}
+          >
+            ⚙️ Change Configuration
+          </button>
 
           <button 
             onClick={handleFullReset}
@@ -532,7 +534,7 @@ export default function BiometricPage() {
               borderRadius: '6px', 
               fontWeight: 600, 
               cursor: 'pointer',
-              fontSize: '0.9rem'
+              fontSize: '0.95rem'
             }}
           >
             ↻ Reset
