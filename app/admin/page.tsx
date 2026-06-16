@@ -12,6 +12,7 @@ interface Configuration {
   description?: string;
   allow_threshold: number;
   challenge_threshold: number;
+  included_modules?: string[];
   location_data?: any;
   allow_redirect_url?: string;
   challenge_redirect_url?: string;
@@ -30,10 +31,19 @@ interface ConfidenceScore {
 
 type TabType = 'overview' | 'users' | 'configurations' | 'confidence-scores' | 'enrollment';
 
+const BIOMETRIC_OPTIONS = [
+  { id: 'gait_analysis', label: '🚶 Gait Analysis' },
+  { id: 'touch_dynamics', label: '👆 Touch Dynamics' },
+  { id: 'hand_motion', label: '🤚 Hand Motion' },
+  { id: 'behavioral_pattern', label: '🧠 Behavioral Pattern' },
+  { id: 'facial_recognition', label: '👤 Facial Recognition' }
+];
+
 export default function AdminDashboard() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [debugInfo, setDebugInfo] = useState('');
 
   const [users, setUsers] = useState<User[]>([]);
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -46,6 +56,7 @@ export default function AdminDashboard() {
     description: '',
     allow_threshold: 80,
     challenge_threshold: 70,
+    included_modules: ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'],
     allow_redirect_url: '',
     challenge_redirect_url: '',
     deny_redirect_url: '',
@@ -73,6 +84,8 @@ export default function AdminDashboard() {
     const orgId = localStorage.getItem('organizationId');
     const orgName = localStorage.getItem('organizationName');
 
+    setDebugInfo(`Token: ${token ? 'YES' : 'NO'} | OrgId: ${orgId} | OrgName: ${orgName}`);
+
     if (!token || !orgId) {
       window.location.href = '/admin/login';
       return;
@@ -96,6 +109,8 @@ export default function AdminDashboard() {
 
   const loadAllData = async (orgId: string) => {
     try {
+      console.log('Loading data for org:', orgId);
+      
       const usersRes = await fetch(`/api/admin/users?organizationId=${orgId}`);
       if (usersRes.ok) setUsers(await usersRes.json());
 
@@ -103,9 +118,12 @@ export default function AdminDashboard() {
       if (configRes.ok) setConfigurations(await configRes.json());
 
       const scoresRes = await fetch(`/api/admin/confidence-scores?organizationId=${orgId}`);
-      if (scoresRes.ok) setAllScores(await scoresRes.json());
+      const scoresData = await scoresRes.json();
+      console.log('Scores response:', scoresRes.status, scoresData.length, 'records');
+      if (scoresRes.ok) setAllScores(scoresData);
     } catch (err) {
       console.error('Failed to load data:', err);
+      setError('Failed to load data: ' + (err instanceof Error ? err.message : 'Unknown'));
     }
   };
 
@@ -113,9 +131,10 @@ export default function AdminDashboard() {
     if (!organizationId) return;
     try {
       const scoresRes = await fetch(`/api/admin/confidence-scores?organizationId=${organizationId}`);
+      const scoresData = await scoresRes.json();
+      console.log('Refresh scores response:', scoresRes.status, scoresData.length, 'records');
       if (scoresRes.ok) {
-        const data = await scoresRes.json();
-        setAllScores(data);
+        setAllScores(scoresData);
       }
     } catch (err) {
       console.error('Failed to refresh scores:', err);
@@ -151,12 +170,17 @@ export default function AdminDashboard() {
       return;
     }
 
+    if (newConfig.included_modules.length === 0) {
+      setError('At least one biometric type must be selected');
+      return;
+    }
+
     try {
       const configData: any = {
         organizationId,
         name: newConfig.name,
         description: newConfig.description,
-        included_modules: ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'],
+        included_modules: newConfig.included_modules,
         allow_threshold: newConfig.allow_threshold,
         challenge_threshold: newConfig.challenge_threshold,
         allow_redirect_url: newConfig.allow_redirect_url || null,
@@ -183,6 +207,7 @@ export default function AdminDashboard() {
         description: '',
         allow_threshold: 80, 
         challenge_threshold: 70,
+        included_modules: ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'],
         allow_redirect_url: '',
         challenge_redirect_url: '',
         deny_redirect_url: '',
@@ -248,6 +273,7 @@ export default function AdminDashboard() {
         <div>
           <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🔐 Admin Dashboard</h1>
           <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Organization: {organizationName}</p>
+          <p style={{ margin: '0.25rem 0 0 0', opacity: 0.7, fontSize: '0.75rem' }}>DEBUG: {debugInfo}</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button onClick={() => window.location.href = '/admin/raw-data'} style={{ padding: '0.75rem 1.5rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>📊 Raw Data</button>
@@ -313,6 +339,7 @@ export default function AdminDashboard() {
               <h2 style={{ margin: 0, color: '#1f2937' }}>Configurations</h2>
               <button onClick={() => setShowConfigForm(!showConfigForm)} style={{ padding: '0.75rem 1.5rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>{showConfigForm ? 'Cancel' : '+ New Configuration'}</button>
             </div>
+
             {showConfigForm && (
               <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', maxHeight: '80vh', overflowY: 'auto' }}>
                 <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr 1fr' }}>
@@ -322,6 +349,30 @@ export default function AdminDashboard() {
                   <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Allow Threshold: {newConfig.allow_threshold}%</label><input type="range" min="0" max="100" value={newConfig.allow_threshold} onChange={(e) => setNewConfig({ ...newConfig, allow_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
                   <div><label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Challenge Threshold: {newConfig.challenge_threshold}%</label><input type="range" min="0" max="100" value={newConfig.challenge_threshold} onChange={(e) => setNewConfig({ ...newConfig, challenge_threshold: parseInt(e.target.value) })} style={{ width: '100%' }} /></div>
                   
+                  <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#e0f2fe', borderRadius: '6px', border: '1px solid #7dd3fc' }}>
+                    <h4 style={{ margin: '0 0 1rem 0', color: '#0369a1' }}>📋 Select Biometric Tests</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      {BIOMETRIC_OPTIONS.map((bio) => (
+                        <label key={bio.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={newConfig.included_modules.includes(bio.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setNewConfig({ ...newConfig, included_modules: [...newConfig.included_modules, bio.id] });
+                              } else {
+                                setNewConfig({ ...newConfig, included_modules: newConfig.included_modules.filter(m => m !== bio.id) });
+                              }
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          {bio.label}
+                        </label>
+                      ))}
+                    </div>
+                    <p style={{ margin: '1rem 0 0 0', fontSize: '0.8rem', color: '#0c4a6e' }}>Selected: {newConfig.included_modules.length} test(s)</p>
+                  </div>
+
                   <div style={{ gridColumn: '1 / -1', padding: '1rem', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
                     <h4 style={{ margin: '0 0 1rem 0', color: '#92400e' }}>🔗 Redirect URLs (Optional)</h4>
                     <div style={{ display: 'grid', gap: '1rem' }}>
@@ -354,25 +405,24 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
+
             {configurations.length === 0 ? <p style={{ color: '#6b7280' }}>No configurations</p> : (
               <div style={{ display: 'grid', gap: '1rem' }}>
                 {configurations.map((c) => (
                   <div key={c.id} style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                     <h4 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>{c.name}</h4>
                     {c.description && <p style={{ margin: '0.25rem 0 0.5rem 0', color: '#6b7280', fontSize: '0.9rem' }}>{c.description}</p>}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.85rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
                       <div><strong>Allow:</strong> {c.allow_threshold}%</div>
                       <div><strong>Challenge:</strong> {c.challenge_threshold}%</div>
-                      {c.allow_redirect_url && <div><strong>✓ Allow:</strong> {c.allow_redirect_url}</div>}
-                      {c.challenge_redirect_url && <div><strong>⚠ Challenge:</strong> {c.challenge_redirect_url}</div>}
-                      {c.deny_redirect_url && <div><strong>✗ Deny:</strong> {c.deny_redirect_url}</div>}
-                      {c.location_data && (
-                        <>
-                          <div><strong>📍 Location:</strong> {c.location_data.latitude?.toFixed(4)}, {c.location_data.longitude?.toFixed(4)}</div>
-                          <div><strong>Radius:</strong> {c.location_data.radius_km}km | <strong>Penalty:</strong> {c.location_data.penalty_percent}%</div>
-                        </>
-                      )}
                     </div>
+                    {c.included_modules && c.included_modules.length > 0 && (
+                      <div style={{ padding: '0.75rem', background: '#e0f2fe', borderRadius: '6px', fontSize: '0.85rem', marginBottom: '0.5rem', border: '1px solid #7dd3fc' }}>
+                        <strong>Tests:</strong> {c.included_modules.map(m => BIOMETRIC_OPTIONS.find(b => b.id === m)?.label || m).join(', ')}
+                      </div>
+                    )}
+                    {c.allow_redirect_url && <div style={{ fontSize: '0.8rem', color: '#6b7280' }}><strong>✓</strong> {c.allow_redirect_url}</div>}
+                    {c.deny_redirect_url && <div style={{ fontSize: '0.8rem', color: '#6b7280' }}><strong>✗</strong> {c.deny_redirect_url}</div>}
                   </div>
                 ))}
               </div>
@@ -385,7 +435,7 @@ export default function AdminDashboard() {
             <h2 style={{ marginTop: 0, color: '#1f2937' }}>🎓 User Enrollment</h2>
             <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '2rem' }}>
               <h3 style={{ marginTop: 0, color: '#374151' }}>Generate Training Link</h3>
-              <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>Create enrollment codes for users to train their biometric baseline.</p>
+              <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>Create enrollment codes for users. Training is valid for 30 days.</p>
               <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: '1fr auto' }}>
                 <input type="email" placeholder="User email" value={enrollmentEmail} onChange={(e) => setEnrollmentEmail(e.target.value)} style={{ padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px' }} />
                 <button onClick={handleGenerateEnrollmentCode} style={{ padding: '0.75rem 1.5rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Generate Code</button>
@@ -416,7 +466,7 @@ export default function AdminDashboard() {
         {activeTab === 'confidence-scores' && (
           <div style={{ background: 'white', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-              <h2 style={{ margin: 0, color: '#1f2937' }}>Confidence Score History</h2>
+              <h2 style={{ margin: 0, color: '#1f2937' }}>Confidence Score History ({allScores.length} records)</h2>
               <button onClick={refreshConfidenceScores} style={{ padding: '0.75rem 1.5rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>🔄 Refresh</button>
             </div>
             <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem' }}>
@@ -437,7 +487,7 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {filteredScores.length} of {allScores.length} records</div>
-            {filteredScores.length === 0 ? <p style={{ color: '#6b7280', textAlign: 'center', padding: '2rem' }}>No confidence scores found</p> : (
+            {filteredScores.length === 0 ? <p style={{ color: '#6b7280', textAlign: 'center', padding: '2rem', background: '#f9fafb', borderRadius: '6px' }}>No confidence scores found</p> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>

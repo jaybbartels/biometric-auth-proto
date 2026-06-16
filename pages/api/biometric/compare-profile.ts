@@ -13,7 +13,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { email, deviceType, sensorData, organizationId } = req.body;
+    const { email, deviceType, sensorData, organizationId, configurationId } = req.body;
 
     if (!email || !organizationId || !sensorData) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -37,12 +37,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // Check if training is older than 30 days
+    const trainingDate = new Date(trainingProfile.created_at);
+    const daysOld = Math.floor((Date.now() - trainingDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysOld > 30) {
+      return res.status(400).json({
+        error: `Training data is ${daysOld} days old. Please retrain (30-day limit).`,
+        is_validated_user: false,
+        person_confidence: 0,
+        days_old: daysOld
+      });
+    }
+
+    // Get configuration to see which biometrics to use
+    let includedModules = ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
+    if (configurationId) {
+      const { data: config } = await supabase
+        .from('configurations')
+        .select('included_modules')
+        .eq('id', configurationId)
+        .single();
+      if (config?.included_modules) {
+        includedModules = config.included_modules;
+      }
+    }
+
     // Calculate live patterns
-    const liveGait = calculatePattern(sensorData.gait_analysis);
-    const liveTouch = calculatePattern(sensorData.touch_dynamics);
-    const liveHand = calculatePattern(sensorData.hand_motion);
-    const liveBehavioral = calculatePattern(sensorData.behavioral_pattern);
-    const liveFacial = calculatePattern(sensorData.facial_recognition);
+    const liveGait = includedModules.includes('gait_analysis') ? calculatePattern(sensorData.gait_analysis) : null;
+    const liveTouch = includedModules.includes('touch_dynamics') ? calculatePattern(sensorData.touch_dynamics) : null;
+    const liveHand = includedModules.includes('hand_motion') ? calculatePattern(sensorData.hand_motion) : null;
+    const liveBehavioral = includedModules.includes('behavioral_pattern') ? calculatePattern(sensorData.behavioral_pattern) : null;
+    const liveFacial = includedModules.includes('facial_recognition') ? calculatePattern(sensorData.facial_recognition) : null;
 
     // Get trained patterns
     const trainedGait = trainingProfile.gait_analysis_data;
@@ -51,24 +76,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const trainedBehavioral = trainingProfile.behavioral_pattern_data;
     const trainedFacial = trainingProfile.facial_recognition_data;
 
-    // Compare each biometric
-    const gaitMatch = comparePatterns(liveGait, trainedGait);
-    const touchMatch = comparePatterns(liveTouch, trainedTouch);
-    const handMatch = comparePatterns(liveHand, trainedHand);
-    const behavioralMatch = comparePatterns(liveBehavioral, trainedBehavioral);
-    const facialMatch = comparePatterns(liveFacial, trainedFacial);
+    // Compare only enabled biometrics
+    const matches: { [key: string]: number } = {};
+    
+    if (liveGait && trainedGait) matches.gait = comparePatterns(liveGait, trainedGait);
+    if (liveTouch && trainedTouch) matches.touch = comparePatterns(liveTouch, trainedTouch);
+    if (liveHand && trainedHand) matches.hand = comparePatterns(liveHand, trainedHand);
+    if (liveBehavioral && trainedBehavioral) matches.behavioral = comparePatterns(liveBehavioral, trainedBehavioral);
+    if (liveFacial && trainedFacial) matches.facial = comparePatterns(liveFacial, trainedFacial);
 
-    // Calculate person confidence
-    const personConfidence = calculatePersonConfidence(
-      gaitMatch,
-      touchMatch,
-      handMatch,
-      behavioralMatch,
-      facialMatch,
-      true // is_validated
-    );
+    // Calculate weighted average of only enabled biometrics
+    const enabledCount = Object.keys(matches).length;
+    if (enabledCount === 0) {
+      return res.status(400).json({ error: 'No biometrics enabled for comparison' });
+    }
 
-    // Try to get user ID (optional - user might not be in org_users)
+    const personConfidence = Math.round(Object.values(matches).reduce((a, b) => a + b, 0) / enabledCount);
+
+    // Try to get user ID (optional)
     const { data: userData } = await supabase
       .from('org_users')
       .select('id')
@@ -83,16 +108,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const deviceInfo = {
       type: deviceType,
       timestamp: new Date().toISOString(),
-      user_agent: req.headers['user-agent']
+      user_agent: req.headers['user-agent'],
+      training_age_days: daysOld
     };
 
     const testResults = {
-      gait_match: gaitMatch,
-      touch_match: touchMatch,
-      hand_match: handMatch,
-      behavioral_match: behavioralMatch,
-      facial_match: facialMatch,
-      person_confidence: Math.round(personConfidence)
+      ...matches,
+      person_confidence: personConfidence,
+      tests_used: Object.keys(matches)
     };
 
     // Insert authentication event
@@ -101,7 +124,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .insert({
         user_id: userId,
         organization_id: organizationId,
-        overall_confidence: Math.round(personConfidence),
+        overall_confidence: personConfidence,
         decision: personConfidence >= 70 ? 'allow' : 'deny',
         test_results: testResults,
         ip_address: String(ipAddress),
@@ -120,12 +143,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       success: true,
       is_validated_user: true,
-      gait_match: gaitMatch,
-      touch_match: touchMatch,
-      hand_match: handMatch,
-      behavioral_match: behavioralMatch,
-      facial_match: facialMatch,
-      person_confidence: Math.round(personConfidence),
+      person_confidence: personConfidence,
+      training_age_days: daysOld,
+      biometrics_used: Object.keys(matches),
       training_profile_id: trainingProfile.id,
       event_logged: !!eventData
     });
