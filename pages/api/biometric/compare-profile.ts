@@ -15,25 +15,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     let { email, deviceType, sensorData, organizationId, configurationId } = req.body;
 
-    // Normalize device type to lowercase for consistent matching
+    // Normalize device type to lowercase
     deviceType = deviceType.toLowerCase();
 
-    console.log('=== COMPARE PROFILE DEBUG ===');
-    console.log('Searching for:', { email, deviceType, organizationId });
+    console.log('=== COMPARE PROFILE START ===');
+    console.log('Input:', { email, deviceType, organizationId, configurationId });
 
     if (!email || !organizationId || !sensorData) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // First, let's see all training profiles for this org
-    const { data: allProfiles } = await supabase
-      .from('biometric_training_profiles')
-      .select('email, device_type, is_validated, organization_id')
-      .eq('organization_id', organizationId);
-
-    console.log('All profiles in org:', allProfiles);
-
-    // Load training profile - search with lowercase device_type
+    // Load training profile
+    console.log('Fetching training profile...');
     const { data: trainingProfile, error: profileError } = await supabase
       .from('biometric_training_profiles')
       .select('*')
@@ -43,36 +36,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('is_validated', true)
       .single();
 
-    console.log('Query result:', { trainingProfile, profileError });
+    console.log('Profile query result:', { found: !!trainingProfile, error: profileError?.message });
 
     if (profileError || !trainingProfile) {
-      console.log('Profile not found. Looking for alternatives...');
-      
-      // Check if profile exists but is_validated is false
-      const { data: unvalidated } = await supabase
-        .from('biometric_training_profiles')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('email', email)
-        .eq('device_type', deviceType);
-      
-      console.log('Unvalidated profile:', unvalidated);
-
+      console.log('Profile not found');
       return res.status(400).json({
         error: 'No validated training profile found for this email+phone combination',
         is_validated_user: false,
-        person_confidence: 0,
-        debug: {
-          searched_for: { email, deviceType, organizationId },
-          available_profiles: allProfiles,
-          unvalidated_matches: unvalidated
-        }
+        person_confidence: 0
       });
     }
+
+    console.log('Training profile found');
 
     // Check if training is older than 30 days
     const trainingDate = new Date(trainingProfile.created_at);
     const daysOld = Math.floor((Date.now() - trainingDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    console.log('Training age:', daysOld, 'days');
+
     if (daysOld > 30) {
       return res.status(400).json({
         error: `Training data is ${daysOld} days old. Please retrain (30-day limit).`,
@@ -85,6 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Get configuration to see which biometrics to use
     let includedModules = ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
     if (configurationId) {
+      console.log('Fetching configuration:', configurationId);
       const { data: config } = await supabase
         .from('configurations')
         .select('included_modules')
@@ -92,15 +75,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .single();
       if (config?.included_modules) {
         includedModules = config.included_modules;
+        console.log('Configuration modules:', includedModules);
       }
     }
 
     // Calculate live patterns
+    console.log('Calculating live patterns...');
     const liveGait = includedModules.includes('gait_analysis') ? calculatePattern(sensorData.gait_analysis) : null;
     const liveTouch = includedModules.includes('touch_dynamics') ? calculatePattern(sensorData.touch_dynamics) : null;
     const liveHand = includedModules.includes('hand_motion') ? calculatePattern(sensorData.hand_motion) : null;
     const liveBehavioral = includedModules.includes('behavioral_pattern') ? calculatePattern(sensorData.behavioral_pattern) : null;
     const liveFacial = includedModules.includes('facial_recognition') ? calculatePattern(sensorData.facial_recognition) : null;
+
+    console.log('Live patterns calculated');
 
     // Get trained patterns
     const trainedGait = trainingProfile.gait_analysis_data;
@@ -112,11 +99,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Compare only enabled biometrics
     const matches: { [key: string]: number } = {};
     
+    console.log('Comparing patterns...');
     if (liveGait && trainedGait) matches.gait = comparePatterns(liveGait, trainedGait);
     if (liveTouch && trainedTouch) matches.touch = comparePatterns(liveTouch, trainedTouch);
     if (liveHand && trainedHand) matches.hand = comparePatterns(liveHand, trainedHand);
     if (liveBehavioral && trainedBehavioral) matches.behavioral = comparePatterns(liveBehavioral, trainedBehavioral);
     if (liveFacial && trainedFacial) matches.facial = comparePatterns(liveFacial, trainedFacial);
+
+    console.log('Matches:', matches);
 
     const enabledCount = Object.keys(matches).length;
     if (enabledCount === 0) {
@@ -124,8 +114,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const personConfidence = Math.round(Object.values(matches).reduce((a, b) => a + b, 0) / enabledCount);
+    console.log('Person confidence:', personConfidence);
 
     // Try to get user ID (optional)
+    console.log('Looking up user...');
     const { data: userData } = await supabase
       .from('org_users')
       .select('id')
@@ -134,6 +126,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single();
 
     const userId = userData?.id || null;
+    console.log('User ID:', userId);
 
     // Log authentication event
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
@@ -150,6 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tests_used: Object.keys(matches)
     };
 
+    console.log('Inserting authentication event...');
     const { data: eventData, error: eventError } = await supabase
       .from('authentication_events')
       .insert({
@@ -169,7 +163,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw eventError;
     }
 
-    console.log('✅ Auth event logged:', eventData);
+    console.log('✅ Auth event logged successfully');
 
     return res.status(200).json({
       success: true,
@@ -181,7 +175,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       event_logged: !!eventData
     });
   } catch (error) {
-    console.error('Error:', error);
-    return res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown' });
+    console.error('❌ ERROR in compare-profile:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('Error details:', errorMsg);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error', 
+      details: errorMsg
+    });
   }
 }
