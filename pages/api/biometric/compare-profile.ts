@@ -12,21 +12,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  try {
-    let { email, deviceType, sensorData, organizationId, configurationId } = req.body;
+  let deviceType = '';
+  let email = '';
+  let organizationId = '';
 
-    // Normalize device type to lowercase
-    deviceType = deviceType.toLowerCase();
+  try {
+    const { email: emailInput, deviceType: deviceTypeInput, sensorData, organizationId: orgId, configurationId } = req.body;
+
+    deviceType = (deviceTypeInput || '').toLowerCase();
+    email = emailInput || '';
+    organizationId = orgId || '';
 
     console.log('=== COMPARE PROFILE START ===');
-    console.log('Input:', { email, deviceType, organizationId, configurationId });
+    console.log('Input:', { email, deviceType, organizationId });
 
     if (!email || !organizationId || !sensorData) {
+      console.log('Missing required fields');
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Load training profile
-    console.log('Fetching training profile...');
+    console.log('Step 1: Fetching training profile...');
     const { data: trainingProfile, error: profileError } = await supabase
       .from('biometric_training_profiles')
       .select('*')
@@ -36,99 +42,91 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('is_validated', true)
       .single();
 
-    console.log('Profile query result:', { found: !!trainingProfile, error: profileError?.message });
+    if (profileError) {
+      console.log('Profile query error:', profileError);
+    }
 
-    if (profileError || !trainingProfile) {
-      console.log('Profile not found');
+    if (!trainingProfile) {
+      console.log('No training profile found');
       return res.status(400).json({
-        error: 'No validated training profile found for this email+phone combination',
+        error: 'No validated training profile found',
         is_validated_user: false,
         person_confidence: 0
       });
     }
 
-    console.log('Training profile found');
-
-    // Check if training is older than 30 days
+    console.log('Step 2: Training profile found, checking age...');
     const trainingDate = new Date(trainingProfile.created_at);
     const daysOld = Math.floor((Date.now() - trainingDate.getTime()) / (1000 * 60 * 60 * 24));
     
-    console.log('Training age:', daysOld, 'days');
-
     if (daysOld > 30) {
       return res.status(400).json({
-        error: `Training data is ${daysOld} days old. Please retrain (30-day limit).`,
+        error: `Training data is ${daysOld} days old`,
         is_validated_user: false,
-        person_confidence: 0,
-        days_old: daysOld
+        person_confidence: 0
       });
     }
 
-    // Get configuration to see which biometrics to use
+    console.log('Step 3: Getting configuration modules...');
     let includedModules = ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
     if (configurationId) {
-      console.log('Fetching configuration:', configurationId);
-      const { data: config } = await supabase
+      const { data: config, error: configError } = await supabase
         .from('configurations')
         .select('included_modules')
         .eq('id', configurationId)
         .single();
-      if (config?.included_modules) {
+      
+      if (configError) {
+        console.log('Config error:', configError);
+      } else if (config?.included_modules) {
         includedModules = config.included_modules;
-        console.log('Configuration modules:', includedModules);
       }
     }
 
-    // Calculate live patterns
-    console.log('Calculating live patterns...');
+    console.log('Step 4: Calculating patterns...');
     const liveGait = includedModules.includes('gait_analysis') ? calculatePattern(sensorData.gait_analysis) : null;
     const liveTouch = includedModules.includes('touch_dynamics') ? calculatePattern(sensorData.touch_dynamics) : null;
     const liveHand = includedModules.includes('hand_motion') ? calculatePattern(sensorData.hand_motion) : null;
     const liveBehavioral = includedModules.includes('behavioral_pattern') ? calculatePattern(sensorData.behavioral_pattern) : null;
     const liveFacial = includedModules.includes('facial_recognition') ? calculatePattern(sensorData.facial_recognition) : null;
 
-    console.log('Live patterns calculated');
-
-    // Get trained patterns
     const trainedGait = trainingProfile.gait_analysis_data;
     const trainedTouch = trainingProfile.touch_dynamics_data;
     const trainedHand = trainingProfile.hand_motion_data;
     const trainedBehavioral = trainingProfile.behavioral_pattern_data;
     const trainedFacial = trainingProfile.facial_recognition_data;
 
-    // Compare only enabled biometrics
+    console.log('Step 5: Comparing patterns...');
     const matches: { [key: string]: number } = {};
     
-    console.log('Comparing patterns...');
     if (liveGait && trainedGait) matches.gait = comparePatterns(liveGait, trainedGait);
     if (liveTouch && trainedTouch) matches.touch = comparePatterns(liveTouch, trainedTouch);
     if (liveHand && trainedHand) matches.hand = comparePatterns(liveHand, trainedHand);
     if (liveBehavioral && trainedBehavioral) matches.behavioral = comparePatterns(liveBehavioral, trainedBehavioral);
     if (liveFacial && trainedFacial) matches.facial = comparePatterns(liveFacial, trainedFacial);
 
-    console.log('Matches:', matches);
-
     const enabledCount = Object.keys(matches).length;
     if (enabledCount === 0) {
-      return res.status(400).json({ error: 'No biometrics enabled for comparison' });
+      return res.status(400).json({ error: 'No biometrics to compare' });
     }
 
     const personConfidence = Math.round(Object.values(matches).reduce((a, b) => a + b, 0) / enabledCount);
-    console.log('Person confidence:', personConfidence);
 
-    // Try to get user ID (optional)
-    console.log('Looking up user...');
-    const { data: userData } = await supabase
+    console.log('Step 6: Looking up user...');
+    const { data: userData, error: userError } = await supabase
       .from('org_users')
       .select('id')
       .eq('organization_id', organizationId)
       .eq('email', email)
       .single();
 
-    const userId = userData?.id || null;
-    console.log('User ID:', userId);
+    if (userError && userError.code !== 'PGRST116') {
+      console.log('User lookup error:', userError);
+    }
 
-    // Log authentication event
+    const userId = userData?.id || null;
+
+    console.log('Step 7: Inserting auth event...');
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const deviceInfo = {
       type: deviceType,
@@ -143,7 +141,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tests_used: Object.keys(matches)
     };
 
-    console.log('Inserting authentication event...');
     const { data: eventData, error: eventError } = await supabase
       .from('authentication_events')
       .insert({
@@ -159,11 +156,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .select();
 
     if (eventError) {
-      console.error('Failed to insert authentication_events:', eventError);
-      throw eventError;
+      console.error('Insert error:', eventError);
+      throw new Error(`DB Insert failed: ${eventError.message}`);
     }
 
-    console.log('✅ Auth event logged successfully');
+    console.log('✅ Success');
 
     return res.status(200).json({
       success: true,
@@ -174,14 +171,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       training_profile_id: trainingProfile.id,
       event_logged: !!eventData
     });
+
   } catch (error) {
-    console.error('❌ ERROR in compare-profile:', error);
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error('Error details:', errorMsg);
+    let errorMessage = 'Unknown error';
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    } else if (error && typeof error === 'object') {
+      errorMessage = JSON.stringify(error);
+    }
+
+    console.error('❌ CAUGHT ERROR:', errorMessage);
     
     return res.status(500).json({ 
       error: 'Internal server error', 
-      details: errorMsg
+      details: errorMessage,
+      step: `Processing ${email} on ${deviceType}`
     });
   }
 }
