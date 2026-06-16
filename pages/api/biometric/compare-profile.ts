@@ -15,9 +15,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const { email, deviceType, sensorData, organizationId, configurationId } = req.body;
 
+    console.log('=== COMPARE PROFILE DEBUG ===');
+    console.log('Searching for:', { email, deviceType, organizationId });
+
     if (!email || !organizationId || !sensorData) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // First, let's see all training profiles for this org
+    const { data: allProfiles } = await supabase
+      .from('biometric_training_profiles')
+      .select('email, device_type, is_validated, organization_id')
+      .eq('organization_id', organizationId);
+
+    console.log('All profiles in org:', allProfiles);
 
     // Load training profile
     const { data: trainingProfile, error: profileError } = await supabase
@@ -29,11 +40,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('is_validated', true)
       .single();
 
+    console.log('Query result:', { trainingProfile, profileError });
+
     if (profileError || !trainingProfile) {
+      console.log('Profile not found. Looking for alternatives...');
+      
+      // Check if profile exists but is_validated is false
+      const { data: unvalidated } = await supabase
+        .from('biometric_training_profiles')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .eq('email', email)
+        .eq('device_type', deviceType);
+      
+      console.log('Unvalidated profile:', unvalidated);
+
       return res.status(400).json({
         error: 'No validated training profile found for this email+phone combination',
         is_validated_user: false,
-        person_confidence: 0
+        person_confidence: 0,
+        debug: {
+          searched_for: { email, deviceType, organizationId },
+          available_profiles: allProfiles,
+          unvalidated_matches: unvalidated
+        }
       });
     }
 
@@ -85,7 +115,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (liveBehavioral && trainedBehavioral) matches.behavioral = comparePatterns(liveBehavioral, trainedBehavioral);
     if (liveFacial && trainedFacial) matches.facial = comparePatterns(liveFacial, trainedFacial);
 
-    // Calculate weighted average of only enabled biometrics
     const enabledCount = Object.keys(matches).length;
     if (enabledCount === 0) {
       return res.status(400).json({ error: 'No biometrics enabled for comparison' });
@@ -118,7 +147,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tests_used: Object.keys(matches)
     };
 
-    // Insert authentication event
     const { data: eventData, error: eventError } = await supabase
       .from('authentication_events')
       .insert({
