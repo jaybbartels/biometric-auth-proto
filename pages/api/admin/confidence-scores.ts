@@ -19,22 +19,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { data, error } = await supabase
       .from('authentication_events')
-      .select('id, overall_confidence, decision, created_at, configuration_name, device_info')
+      .select('id, user_id, overall_confidence, decision, created_at, configuration_name, device_info')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false });
 
     if (error) {
+      console.error('Query error:', error);
       throw error;
     }
 
-    const formatted = (data || []).map((row: any) => ({
-      id: row.id,
-      confidence_score: row.overall_confidence,
-      decision: row.decision,
-      created_at: row.created_at,
-      configuration_name: row.configuration_name,
-      device_type: row.device_info?.type,
-      app_version: row.device_info?.app_version
+    // For each record, look up email if user_id exists
+    const formatted = await Promise.all((data || []).map(async (row: any) => {
+      let email = 'N/A';
+      
+      if (row.user_id) {
+        const { data: userData } = await supabase
+          .from('org_users')
+          .select('email')
+          .eq('id', row.user_id)
+          .single();
+        
+        if (userData?.email) {
+          email = userData.email;
+        }
+      }
+      
+      return {
+        id: row.id,
+        email: email,
+        confidence_score: row.overall_confidence,
+        decision: row.decision,
+        created_at: row.created_at,
+        configuration_name: row.configuration_name || 'N/A',
+        device_type: row.device_info?.type,
+        app_version: row.device_info?.app_version
+      };
     }));
 
     return res.status(200).json(formatted);

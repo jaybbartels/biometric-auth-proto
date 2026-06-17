@@ -23,22 +23,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     email = emailInput || '';
     organizationId = orgId || '';
 
-    console.log('=== COMPARE PROFILE START ===');
-    console.log('Received email:', email);
-    console.log('Received organizationId:', organizationId);
-
     if (!email || !organizationId || !sensorData) {
-      console.log('Missing required fields');
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     if (!configurationId) {
-      console.log('Missing configuration ID');
       return res.status(400).json({ error: 'Configuration ID is required' });
     }
 
     // Load training profile
-    console.log('Step 1: Fetching training profile for email:', email);
     const { data: trainingProfile, error: profileError } = await supabase
       .from('biometric_training_profiles')
       .select('*')
@@ -48,12 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('is_validated', true)
       .single();
 
-    if (profileError) {
-      console.log('Profile query error:', profileError);
-    }
-
-    if (!trainingProfile) {
-      console.log('No training profile found');
+    if (profileError || !trainingProfile) {
       return res.status(400).json({
         error: 'No validated training profile found',
         is_validated_user: false,
@@ -61,7 +49,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    console.log('Step 2: Training profile found');
     const trainingDate = new Date(trainingProfile.created_at);
     const daysOld = Math.floor((Date.now() - trainingDate.getTime()) / (1000 * 60 * 60 * 24));
     
@@ -73,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    console.log('Step 3: Getting configuration');
+    // Get configuration
     const { data: config, error: configError } = await supabase
       .from('configurations')
       .select('included_modules, allow_threshold, challenge_threshold, name')
@@ -81,7 +68,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single();
     
     if (configError || !config) {
-      console.log('Config error:', configError);
       return res.status(400).json({ error: 'Configuration not found' });
     }
 
@@ -89,7 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const allowThreshold = config.allow_threshold || 80;
     const includedModules = config.included_modules || ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
 
-    console.log('Step 4: Calculating patterns');
+    // Calculate live patterns
     const liveGait = includedModules.includes('gait_analysis') ? calculatePattern(sensorData.gait_analysis) : null;
     const liveTouch = includedModules.includes('touch_dynamics') ? calculatePattern(sensorData.touch_dynamics) : null;
     const liveHand = includedModules.includes('hand_motion') ? calculatePattern(sensorData.hand_motion) : null;
@@ -102,7 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const trainedBehavioral = trainingProfile.behavioral_pattern_data;
     const trainedFacial = trainingProfile.facial_recognition_data;
 
-    console.log('Step 5: Comparing patterns');
+    // Compare patterns
     const matches: { [key: string]: number } = {};
     
     if (liveGait && trainedGait) matches.gait = comparePatterns(liveGait, trainedGait);
@@ -119,22 +105,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const personConfidence = Math.round(Object.values(matches).reduce((a, b) => a + b, 0) / enabledCount);
     const decision = personConfidence >= allowThreshold ? 'allow' : 'deny';
 
-    console.log('Step 6: Looking up user by email');
-    const { data: userData, error: userError } = await supabase
+    // Get user ID from org_users
+    const { data: userData } = await supabase
       .from('org_users')
       .select('id')
       .eq('organization_id', organizationId)
       .eq('email', email)
       .single();
 
-    if (userError && userError.code !== 'PGRST116') {
-      console.log('User lookup error (non-critical):', userError.code);
-    }
-
     const userId = userData?.id || null;
-    console.log('User ID found:', userId ? 'yes' : 'no');
 
-    console.log('Step 7: Preparing authentication event insert');
+    // Prepare insert
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const deviceInfo = {
       type: deviceType,
@@ -150,38 +131,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tests_used: Object.keys(matches)
     };
 
-    // Build insert object with all fields
-    const insertObject = {
-      user_id: userId,
-      organization_id: organizationId,
-      email: email,
-      configuration_id: configurationId,
-      configuration_name: configName,
-      overall_confidence: personConfidence,
-      decision: decision,
-      test_results: testResults,
-      ip_address: String(ipAddress),
-      device_info: deviceInfo,
-      created_at: new Date().toISOString()
-    };
-
-    console.log('Insert object keys:', Object.keys(insertObject));
-    console.log('Email in insert object:', insertObject.email);
-    console.log('User ID in insert object:', insertObject.user_id);
-
+    // Insert authentication event
     const { data: eventData, error: eventError } = await supabase
       .from('authentication_events')
-      .insert(insertObject)
+      .insert({
+        user_id: userId,
+        organization_id: organizationId,
+        configuration_id: configurationId,
+        configuration_name: configName,
+        overall_confidence: personConfidence,
+        decision: decision,
+        test_results: testResults,
+        ip_address: String(ipAddress),
+        device_info: deviceInfo,
+        created_at: new Date().toISOString()
+      })
       .select();
 
     if (eventError) {
       console.error('Insert error:', eventError);
       throw new Error(`DB Insert failed: ${eventError.message}`);
-    }
-
-    console.log('✅ Event inserted successfully');
-    if (eventData && eventData.length > 0) {
-      console.log('Inserted record - email:', eventData[0].email, 'user_id:', eventData[0].user_id);
     }
 
     return res.status(200).json({
@@ -206,7 +175,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       errorMessage = JSON.stringify(error);
     }
 
-    console.error('❌ CAUGHT ERROR:', errorMessage);
+    console.error('Error:', errorMessage);
     
     return res.status(500).json({ 
       error: 'Internal server error', 
