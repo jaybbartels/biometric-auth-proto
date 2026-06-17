@@ -21,12 +21,13 @@ interface Configuration {
 
 interface ConfidenceScore {
   id: string;
-  user_id: string;
   email: string;
   confidence_score: number;
   decision: string;
   created_at: string;
-  test_results?: any;
+  configuration_name?: string;
+  device_type?: string;
+  app_version?: string;
 }
 
 type TabType = 'overview' | 'users' | 'configurations' | 'confidence-scores' | 'enrollment';
@@ -43,7 +44,6 @@ export default function AdminDashboard() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
-  const [debugInfo, setDebugInfo] = useState('');
 
   const [users, setUsers] = useState<User[]>([]);
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -70,6 +70,9 @@ export default function AdminDashboard() {
   const [allScores, setAllScores] = useState<ConfidenceScore[]>([]);
   const [filteredScores, setFilteredScores] = useState<ConfidenceScore[]>([]);
   const [emailFilter, setEmailFilter] = useState('');
+  const [configFilter, setConfigFilter] = useState('');
+  const [dateFromFilter, setDateFromFilter] = useState('');
+  const [dateToFilter, setDateToFilter] = useState('');
   const [resultFilter, setResultFilter] = useState<'all' | 'allow' | 'deny'>('all');
 
   const [enrollmentEmail, setEnrollmentEmail] = useState('');
@@ -84,8 +87,6 @@ export default function AdminDashboard() {
     const orgId = localStorage.getItem('organizationId');
     const orgName = localStorage.getItem('organizationName');
 
-    setDebugInfo(`Token: ${token ? 'YES' : 'NO'} | OrgId: ${orgId} | OrgName: ${orgName}`);
-
     if (!token || !orgId) {
       window.location.href = '/admin/login';
       return;
@@ -98,19 +99,38 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let filtered = allScores;
+    
+    // Email filter
     if (emailFilter) {
-      filtered = filtered.filter(s => s.email.toLowerCase().includes(emailFilter.toLowerCase()));
+      filtered = filtered.filter(s => (s.email || '').toLowerCase().includes(emailFilter.toLowerCase()));
     }
+    
+    // Configuration filter
+    if (configFilter) {
+      filtered = filtered.filter(s => (s.configuration_name || '').toLowerCase().includes(configFilter.toLowerCase()));
+    }
+    
+    // Date range filter
+    if (dateFromFilter) {
+      const fromDate = new Date(dateFromFilter);
+      filtered = filtered.filter(s => new Date(s.created_at) >= fromDate);
+    }
+    if (dateToFilter) {
+      const toDate = new Date(dateToFilter);
+      toDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(s => new Date(s.created_at) <= toDate);
+    }
+    
+    // Result filter
     if (resultFilter !== 'all') {
       filtered = filtered.filter(s => s.decision === resultFilter);
     }
+    
     setFilteredScores(filtered);
-  }, [allScores, emailFilter, resultFilter]);
+  }, [allScores, emailFilter, configFilter, dateFromFilter, dateToFilter, resultFilter]);
 
   const loadAllData = async (orgId: string) => {
     try {
-      console.log('Loading data for org:', orgId);
-      
       const usersRes = await fetch(`/api/admin/users?organizationId=${orgId}`);
       if (usersRes.ok) setUsers(await usersRes.json());
 
@@ -119,7 +139,6 @@ export default function AdminDashboard() {
 
       const scoresRes = await fetch(`/api/admin/confidence-scores?organizationId=${orgId}`);
       const scoresData = await scoresRes.json();
-      console.log('Scores response:', scoresRes.status, scoresData.length, 'records');
       if (scoresRes.ok) setAllScores(scoresData);
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -132,7 +151,6 @@ export default function AdminDashboard() {
     try {
       const scoresRes = await fetch(`/api/admin/confidence-scores?organizationId=${organizationId}`);
       const scoresData = await scoresRes.json();
-      console.log('Refresh scores response:', scoresRes.status, scoresData.length, 'records');
       if (scoresRes.ok) {
         setAllScores(scoresData);
       }
@@ -273,7 +291,6 @@ export default function AdminDashboard() {
         <div>
           <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🔐 Admin Dashboard</h1>
           <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9 }}>Organization: {organizationName}</p>
-          <p style={{ margin: '0.25rem 0 0 0', opacity: 0.7, fontSize: '0.75rem' }}>DEBUG: {debugInfo}</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button onClick={() => window.location.href = '/admin/raw-data'} style={{ padding: '0.75rem 1.5rem', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>📊 Raw Data</button>
@@ -469,43 +486,84 @@ export default function AdminDashboard() {
               <h2 style={{ margin: 0, color: '#1f2937' }}>Confidence Score History ({allScores.length} records)</h2>
               <button onClick={refreshConfidenceScores} style={{ padding: '0.75rem 1.5rem', background: '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>🔄 Refresh</button>
             </div>
-            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Email:</label>
-                <input type="text" placeholder="Search email..." value={emailFilter} onChange={(e) => setEmailFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} />
+            
+            <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '8px', marginBottom: '1rem', border: '1px solid #e5e7eb' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Email:</label>
+                  <input type="text" placeholder="Search email..." value={emailFilter} onChange={(e) => setEmailFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Configuration:</label>
+                  <input type="text" placeholder="Search config..." value={configFilter} onChange={(e) => setConfigFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>From Date:</label>
+                  <input type="date" value={dateFromFilter} onChange={(e) => setDateFromFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box', background: 'white' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>To Date:</label>
+                  <input type="date" value={dateToFilter} onChange={(e) => setDateToFilter(e.target.value)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', boxSizing: 'border-box', background: 'white' }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button onClick={() => { setEmailFilter(''); setConfigFilter(''); setDateFromFilter(''); setDateToFilter(''); setResultFilter('all'); }} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Clear</button>
+                </div>
               </div>
+              
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Filter by Result:</label>
-                <select value={resultFilter} onChange={(e) => setResultFilter(e.target.value as any)} style={{ width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white' }}>
-                  <option value="all">All Results</option>
-                  <option value="allow">Allow</option>
-                  <option value="deny">Deny</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button onClick={() => { setEmailFilter(''); setResultFilter('all'); }} style={{ padding: '0.75rem 1.5rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Clear</button>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                    <input type="radio" name="result" value="all" checked={resultFilter === 'all'} onChange={() => setResultFilter('all')} style={{ cursor: 'pointer' }} />
+                    All Results
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                    <input type="radio" name="result" value="allow" checked={resultFilter === 'allow'} onChange={() => setResultFilter('allow')} style={{ cursor: 'pointer' }} />
+                    Allow
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                    <input type="radio" name="result" value="deny" checked={resultFilter === 'deny'} onChange={() => setResultFilter('deny')} style={{ cursor: 'pointer' }} />
+                    Deny
+                  </label>
+                </div>
               </div>
             </div>
+            
             <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {filteredScores.length} of {allScores.length} records</div>
             {filteredScores.length === 0 ? <p style={{ color: '#6b7280', textAlign: 'center', padding: '2rem', background: '#f9fafb', borderRadius: '6px' }}>No confidence scores found</p> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Date & Time</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Email</th>
+                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Configuration</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Score</th>
                     <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Decision</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Timestamp</th>
+                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Device / Version</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredScores.map((s, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                      <td style={{ padding: '1rem' }}>{s.email}</td>
-                      <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{s.confidence_score}%</td>
-                      <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.75rem', background: s.decision === 'allow' ? '#dcfce7' : '#fee2e2', color: s.decision === 'allow' ? '#166534' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>{s.decision}</span></td>
-                      <td style={{ padding: '1rem', color: '#6b7280', fontSize: '0.8rem' }}>{new Date(s.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {filteredScores.map((s, i) => {
+                    const dateTime = new Date(s.created_at);
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                        <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                          {dateTime.toLocaleDateString()} {dateTime.toLocaleTimeString()}
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
+                          {s.email || 'N/A'}
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
+                          {s.configuration_name || 'N/A'}
+                        </td>
+                        <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{s.confidence_score}%</td>
+                        <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.75rem', background: s.decision === 'allow' ? '#dcfce7' : '#fee2e2', color: s.decision === 'allow' ? '#166534' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>{s.decision.toUpperCase()}</span></td>
+                        <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>
+                          {s.device_type} {s.app_version ? `v${s.app_version}` : ''}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
