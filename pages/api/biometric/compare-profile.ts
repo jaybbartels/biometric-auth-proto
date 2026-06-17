@@ -24,7 +24,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     organizationId = orgId || '';
 
     console.log('=== COMPARE PROFILE START ===');
-    console.log('Input:', { email, deviceType, organizationId, configurationId });
+    console.log('Received email:', email);
+    console.log('Received organizationId:', organizationId);
 
     if (!email || !organizationId || !sensorData) {
       console.log('Missing required fields');
@@ -37,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Load training profile
-    console.log('Step 1: Fetching training profile...');
+    console.log('Step 1: Fetching training profile for email:', email);
     const { data: trainingProfile, error: profileError } = await supabase
       .from('biometric_training_profiles')
       .select('*')
@@ -60,7 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    console.log('Step 2: Training profile found, checking age...');
+    console.log('Step 2: Training profile found');
     const trainingDate = new Date(trainingProfile.created_at);
     const daysOld = Math.floor((Date.now() - trainingDate.getTime()) / (1000 * 60 * 60 * 24));
     
@@ -72,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    console.log('Step 3: Getting configuration...');
+    console.log('Step 3: Getting configuration');
     const { data: config, error: configError } = await supabase
       .from('configurations')
       .select('included_modules, allow_threshold, challenge_threshold, name')
@@ -88,7 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const allowThreshold = config.allow_threshold || 80;
     const includedModules = config.included_modules || ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
 
-    console.log('Step 4: Calculating patterns...');
+    console.log('Step 4: Calculating patterns');
     const liveGait = includedModules.includes('gait_analysis') ? calculatePattern(sensorData.gait_analysis) : null;
     const liveTouch = includedModules.includes('touch_dynamics') ? calculatePattern(sensorData.touch_dynamics) : null;
     const liveHand = includedModules.includes('hand_motion') ? calculatePattern(sensorData.hand_motion) : null;
@@ -101,7 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const trainedBehavioral = trainingProfile.behavioral_pattern_data;
     const trainedFacial = trainingProfile.facial_recognition_data;
 
-    console.log('Step 5: Comparing patterns...');
+    console.log('Step 5: Comparing patterns');
     const matches: { [key: string]: number } = {};
     
     if (liveGait && trainedGait) matches.gait = comparePatterns(liveGait, trainedGait);
@@ -118,10 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const personConfidence = Math.round(Object.values(matches).reduce((a, b) => a + b, 0) / enabledCount);
     const decision = personConfidence >= allowThreshold ? 'allow' : 'deny';
 
-    console.log('Decision:', decision, 'Confidence:', personConfidence, 'Threshold:', allowThreshold);
-
-    // Try to get user ID (optional)
-    console.log('Step 6: Looking up user...');
+    console.log('Step 6: Looking up user by email');
     const { data: userData, error: userError } = await supabase
       .from('org_users')
       .select('id')
@@ -130,12 +128,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single();
 
     if (userError && userError.code !== 'PGRST116') {
-      console.log('User lookup error:', userError);
+      console.log('User lookup error (non-critical):', userError.code);
     }
 
     const userId = userData?.id || null;
+    console.log('User ID found:', userId ? 'yes' : 'no');
 
-    console.log('Step 7: Inserting auth event...');
+    console.log('Step 7: Preparing authentication event insert');
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const deviceInfo = {
       type: deviceType,
@@ -151,20 +150,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tests_used: Object.keys(matches)
     };
 
+    // Build insert object with all fields
+    const insertObject = {
+      user_id: userId,
+      organization_id: organizationId,
+      email: email,
+      configuration_id: configurationId,
+      configuration_name: configName,
+      overall_confidence: personConfidence,
+      decision: decision,
+      test_results: testResults,
+      ip_address: String(ipAddress),
+      device_info: deviceInfo,
+      created_at: new Date().toISOString()
+    };
+
+    console.log('Insert object keys:', Object.keys(insertObject));
+    console.log('Email in insert object:', insertObject.email);
+    console.log('User ID in insert object:', insertObject.user_id);
+
     const { data: eventData, error: eventError } = await supabase
       .from('authentication_events')
-      .insert({
-        user_id: userId,
-        organization_id: organizationId,
-        configuration_id: configurationId,
-        configuration_name: configName,
-        overall_confidence: personConfidence,
-        decision: decision,
-        test_results: testResults,
-        ip_address: String(ipAddress),
-        device_info: deviceInfo,
-        created_at: new Date().toISOString()
-      })
+      .insert(insertObject)
       .select();
 
     if (eventError) {
@@ -172,7 +179,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error(`DB Insert failed: ${eventError.message}`);
     }
 
-    console.log('✅ Success');
+    console.log('✅ Event inserted successfully');
+    if (eventData && eventData.length > 0) {
+      console.log('Inserted record - email:', eventData[0].email, 'user_id:', eventData[0].user_id);
+    }
 
     return res.status(200).json({
       success: true,
