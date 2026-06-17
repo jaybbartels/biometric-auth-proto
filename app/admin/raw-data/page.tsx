@@ -6,6 +6,7 @@ interface AuthEvent {
   user_id?: string;
   organization_id: string;
   configuration_id: string;
+  configuration_name?: string;
   overall_confidence: number;
   decision: string;
   test_results?: any;
@@ -78,11 +79,12 @@ export default function RawDataPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Time</th>
+                  <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Date & Time</th>
+                  <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Configuration</th>
                   <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Decision</th>
                   <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Confidence</th>
                   <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Tests Used</th>
-                  <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Device Type</th>
+                  <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Device</th>
                   <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>IP Address</th>
                   <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600, fontSize: '0.85rem' }}>Details</th>
                 </tr>
@@ -92,11 +94,15 @@ export default function RawDataPage() {
                   const testResults = event.test_results || {};
                   const deviceInfo = event.device_info || {};
                   const testsUsed = testResults.tests_used || [];
+                  const dateTime = new Date(event.created_at);
                   
                   return (
                     <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                      <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#6b7280' }}>
-                        {new Date(event.created_at).toLocaleString()}
+                      <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        {dateTime.toLocaleDateString()} {dateTime.toLocaleTimeString()}
+                      </td>
+                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
+                        {event.configuration_name || 'N/A'}
                       </td>
                       <td style={{ padding: '1rem' }}>
                         <span style={{ padding: '0.25rem 0.75rem', background: event.decision === 'allow' ? '#dcfce7' : '#fee2e2', color: event.decision === 'allow' ? '#166534' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>
@@ -110,7 +116,7 @@ export default function RawDataPage() {
                         {testsUsed.length > 0 ? testsUsed.join(', ') : 'N/A'}
                       </td>
                       <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#6b7280' }}>
-                        {deviceInfo.type || 'N/A'}
+                        {deviceInfo.type || 'N/A'} {deviceInfo.app_version ? `v${deviceInfo.app_version}` : ''}
                       </td>
                       <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#6b7280', fontFamily: 'monospace' }}>
                         {event.ip_address}

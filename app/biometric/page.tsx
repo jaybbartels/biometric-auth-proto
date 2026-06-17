@@ -23,6 +23,8 @@ interface Location {
   timestamp: string;
 }
 
+const APP_VERSION = '1.0.1';
+
 export default function BiometricPage() {
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [selectedOrg, setSelectedOrg] = useState('');
@@ -299,7 +301,7 @@ export default function BiometricPage() {
         <div style={{ maxWidth: '500px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
           <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', padding: '2rem', color: 'white' }}>
             <h1 style={{ margin: 0, fontSize: '1.8rem' }}>🔐 Biometric Access</h1>
-            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>📱 {deviceType}</p>
+            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>📱 {deviceType} | v{APP_VERSION}</p>
           </div>
 
           <div style={{ padding: '2rem' }}>
@@ -382,7 +384,7 @@ export default function BiometricPage() {
         <div style={{ maxWidth: '500px', width: '100%', background: 'white', borderRadius: '12px', boxShadow: '0 20px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
           <div style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', padding: '2rem', color: 'white' }}>
             <h1 style={{ margin: 0, fontSize: '1.6rem' }}>🟢 ACTIVE</h1>
-            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>Collecting biometric data...</p>
+            <p style={{ margin: '0.5rem 0 0 0', opacity: 0.9, fontSize: '0.9rem' }}>Collecting biometric data... v{APP_VERSION}</p>
           </div>
 
           <div style={{ padding: '2rem' }}>

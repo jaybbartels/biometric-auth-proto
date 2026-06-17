@@ -14,47 +14,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { organizationId } = req.query;
 
     if (!organizationId) {
-      return res.status(400).json({ error: 'organizationId required' });
+      return res.status(400).json({ error: 'Organization ID required' });
     }
 
-    // Get all authentication events for this organization
-    const { data: events, error } = await supabase
+    const { data, error } = await supabase
       .from('authentication_events')
-      .select(`
-        id,
-        user_id,
-        organization_id,
-        overall_confidence,
-        decision,
-        created_at,
-        test_results
-      `)
+      .select('id, overall_confidence, decision, created_at, configuration_name, device_info')
       .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false })
-      .limit(100);
+      .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
-    // Get user emails
-    const { data: users } = await supabase
-      .from('org_users')
-      .select('id, email')
-      .eq('organization_id', organizationId);
+    const formatted = (data || []).map((row: any) => ({
+      id: row.id,
+      confidence_score: row.overall_confidence,
+      decision: row.decision,
+      created_at: row.created_at,
+      configuration_name: row.configuration_name,
+      device_type: row.device_info?.type,
+      app_version: row.device_info?.app_version
+    }));
 
-    const userMap = new Map(users?.map(u => [u.id, u.email]) || []);
-
-    // Format for display
-    const formattedScores = events?.map((e: any) => ({
-      id: e.id,
-      user_id: e.user_id,
-      email: userMap.get(e.user_id) || 'Unknown',
-      confidence_score: e.overall_confidence,
-      decision: e.decision,
-      created_at: e.created_at,
-      test_results: e.test_results
-    })) || [];
-
-    return res.status(200).json(formattedScores);
+    return res.status(200).json(formatted);
   } catch (error) {
     console.error('Error:', error);
     return res.status(500).json({ error: 'Internal server error' });

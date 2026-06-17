@@ -72,20 +72,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    console.log('Step 3: Getting configuration modules...');
-    let includedModules = ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
-    
+    console.log('Step 3: Getting configuration...');
     const { data: config, error: configError } = await supabase
       .from('configurations')
-      .select('included_modules')
+      .select('included_modules, allow_threshold, challenge_threshold, name')
       .eq('id', configurationId)
       .single();
     
-    if (configError) {
+    if (configError || !config) {
       console.log('Config error:', configError);
-    } else if (config?.included_modules) {
-      includedModules = config.included_modules;
+      return res.status(400).json({ error: 'Configuration not found' });
     }
+
+    const configName = config.name || 'Unknown';
+    const allowThreshold = config.allow_threshold || 80;
+    const includedModules = config.included_modules || ['gait_analysis', 'touch_dynamics', 'hand_motion', 'behavioral_pattern'];
 
     console.log('Step 4: Calculating patterns...');
     const liveGait = includedModules.includes('gait_analysis') ? calculatePattern(sensorData.gait_analysis) : null;
@@ -115,7 +116,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const personConfidence = Math.round(Object.values(matches).reduce((a, b) => a + b, 0) / enabledCount);
+    const decision = personConfidence >= allowThreshold ? 'allow' : 'deny';
 
+    console.log('Decision:', decision, 'Confidence:', personConfidence, 'Threshold:', allowThreshold);
+
+    // Try to get user ID (optional)
     console.log('Step 6: Looking up user...');
     const { data: userData, error: userError } = await supabase
       .from('org_users')
@@ -136,7 +141,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       type: deviceType,
       timestamp: new Date().toISOString(),
       user_agent: req.headers['user-agent'],
-      training_age_days: daysOld
+      training_age_days: daysOld,
+      app_version: '1.0.1'
     };
 
     const testResults = {
@@ -151,8 +157,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         user_id: userId,
         organization_id: organizationId,
         configuration_id: configurationId,
+        configuration_name: configName,
         overall_confidence: personConfidence,
-        decision: personConfidence >= 70 ? 'allow' : 'deny',
+        decision: decision,
         test_results: testResults,
         ip_address: String(ipAddress),
         device_info: deviceInfo,
@@ -171,6 +178,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       success: true,
       is_validated_user: true,
       person_confidence: personConfidence,
+      decision: decision,
       training_age_days: daysOld,
       biometrics_used: Object.keys(matches),
       training_profile_id: trainingProfile.id,
