@@ -17,38 +17,55 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Organization ID required' });
     }
 
-    const { data, error } = await supabase
+    console.log('Fetching authentication events for org:', organizationId);
+
+    const { data: events, error: eventsError } = await supabase
       .from('authentication_events')
       .select('*')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Query error:', error);
-      throw error;
+    if (eventsError) {
+      console.error('Events query error:', eventsError);
+      throw eventsError;
     }
 
-    // For each record, look up email if user_id exists
-    const enriched = await Promise.all((data || []).map(async (row: any) => {
-      let email = 'N/A';
-      
-      if (row.user_id) {
-        const { data: userData } = await supabase
-          .from('org_users')
-          .select('email')
-          .eq('id', row.user_id)
-          .single();
-        
-        if (userData?.email) {
-          email = userData.email;
-        }
+    console.log(`Retrieved ${events?.length || 0} events`);
+
+    // Get all unique user IDs
+    const userIds = new Set((events || [])
+      .map((e: any) => e.user_id)
+      .filter((id: any) => id !== null));
+
+    console.log(`Found ${userIds.size} unique user IDs`);
+
+    // Batch load all users
+    let userMap: { [key: string]: string } = {};
+    
+    if (userIds.size > 0) {
+      const { data: users, error: usersError } = await supabase
+        .from('org_users')
+        .select('id, email')
+        .eq('organization_id', organizationId)
+        .in('id', Array.from(userIds));
+
+      if (usersError) {
+        console.error('Users query error:', usersError);
+      } else {
+        (users || []).forEach((user: any) => {
+          userMap[user.id] = user.email;
+        });
+        console.log(`Loaded ${Object.keys(userMap).length} user emails`);
       }
-      
-      return {
-        ...row,
-        email: email
-      };
+    }
+
+    // Enrich events with email
+    const enriched = (events || []).map((event: any) => ({
+      ...event,
+      email: event.user_id ? (userMap[event.user_id] || 'N/A') : 'N/A'
     }));
+
+    console.log('Sample enriched event email:', enriched[0]?.email);
 
     return res.status(200).json(enriched);
   } catch (error) {

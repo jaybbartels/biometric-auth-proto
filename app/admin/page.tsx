@@ -40,6 +40,8 @@ const BIOMETRIC_OPTIONS = [
   { id: 'facial_recognition', label: '👤 Facial Recognition' }
 ];
 
+const ITEMS_PER_PAGE = 20;
+
 export default function AdminDashboard() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [organizationName, setOrganizationName] = useState<string | null>(null);
@@ -69,6 +71,9 @@ export default function AdminDashboard() {
 
   const [allScores, setAllScores] = useState<ConfidenceScore[]>([]);
   const [filteredScores, setFilteredScores] = useState<ConfidenceScore[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [paginatedScores, setPaginatedScores] = useState<ConfidenceScore[]>([]);
+  
   const [emailFilter, setEmailFilter] = useState('');
   const [configFilter, setConfigFilter] = useState('');
   const [dateFromFilter, setDateFromFilter] = useState('');
@@ -100,17 +105,14 @@ export default function AdminDashboard() {
   useEffect(() => {
     let filtered = allScores;
     
-    // Email filter
     if (emailFilter) {
       filtered = filtered.filter(s => (s.email || '').toLowerCase().includes(emailFilter.toLowerCase()));
     }
     
-    // Configuration filter
     if (configFilter) {
       filtered = filtered.filter(s => (s.configuration_name || '').toLowerCase().includes(configFilter.toLowerCase()));
     }
     
-    // Date range filter
     if (dateFromFilter) {
       const fromDate = new Date(dateFromFilter);
       filtered = filtered.filter(s => new Date(s.created_at) >= fromDate);
@@ -121,13 +123,22 @@ export default function AdminDashboard() {
       filtered = filtered.filter(s => new Date(s.created_at) <= toDate);
     }
     
-    // Result filter
     if (resultFilter !== 'all') {
       filtered = filtered.filter(s => s.decision === resultFilter);
     }
     
     setFilteredScores(filtered);
+    setCurrentPage(1);
   }, [allScores, emailFilter, configFilter, dateFromFilter, dateToFilter, resultFilter]);
+
+  // Pagination logic
+  useEffect(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    setPaginatedScores(filteredScores.slice(startIndex, endIndex));
+  }, [filteredScores, currentPage]);
+
+  const totalPages = Math.ceil(filteredScores.length / ITEMS_PER_PAGE);
 
   const loadAllData = async (orgId: string) => {
     try {
@@ -529,43 +540,66 @@ export default function AdminDashboard() {
               </div>
             </div>
             
-            <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {filteredScores.length} of {allScores.length} records</div>
+            <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>Showing {paginatedScores.length} of {filteredScores.length} records (Page {currentPage} of {totalPages})</div>
             {filteredScores.length === 0 ? <p style={{ color: '#6b7280', textAlign: 'center', padding: '2rem', background: '#f9fafb', borderRadius: '6px' }}>No confidence scores found</p> : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Date & Time</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Email</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Configuration</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Score</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Decision</th>
-                    <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Device / Version</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredScores.map((s, i) => {
-                    const dateTime = new Date(s.created_at);
-                    return (
-                      <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                        <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                          {dateTime.toLocaleDateString()} {dateTime.toLocaleTimeString()}
-                        </td>
-                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
-                          {s.email || 'N/A'}
-                        </td>
-                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
-                          {s.configuration_name || 'N/A'}
-                        </td>
-                        <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{s.confidence_score}%</td>
-                        <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.75rem', background: s.decision === 'allow' ? '#dcfce7' : '#fee2e2', color: s.decision === 'allow' ? '#166534' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>{s.decision.toUpperCase()}</span></td>
-                        <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>
-                          {s.device_type} {s.app_version ? `v${s.app_version}` : ''}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                      <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Date & Time</th>
+                      <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Email</th>
+                      <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Configuration</th>
+                      <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Score</th>
+                      <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Decision</th>
+                      <th style={{ padding: '1rem', textAlign: 'left', fontWeight: 600 }}>Device / Version</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedScores.map((s, i) => {
+                      const dateTime = new Date(s.created_at);
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid #e5e7eb', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                          <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                            {dateTime.toLocaleDateString()} {dateTime.toLocaleTimeString()}
+                          </td>
+                          <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
+                            {s.email || 'N/A'}
+                          </td>
+                          <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
+                            {s.configuration_name || 'N/A'}
+                          </td>
+                          <td style={{ padding: '1rem', fontWeight: 600, color: '#2e75b6' }}>{s.confidence_score}%</td>
+                          <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.75rem', background: s.decision === 'allow' ? '#dcfce7' : '#fee2e2', color: s.decision === 'allow' ? '#166534' : '#991b1b', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>{s.decision.toUpperCase()}</span></td>
+                          <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#6b7280' }}>
+                            {s.device_type} {s.app_version ? `v${s.app_version}` : ''}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* Pagination Controls */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button 
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    style={{ padding: '0.5rem 1rem', background: currentPage === 1 ? '#d1d5db' : '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                  >
+                    ← Previous
+                  </button>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#374151', minWidth: '120px', textAlign: 'center' }}>
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <button 
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    style={{ padding: '0.5rem 1rem', background: currentPage === totalPages ? '#d1d5db' : '#2e75b6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}
